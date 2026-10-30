@@ -2,7 +2,7 @@ use darling::FromMeta;
 use darling::ast::NestedMeta;
 use darling::util::{Override, PathList, parse_attribute_to_meta_list};
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{ToTokens, format_ident, quote, quote_spanned as qs};
+use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
@@ -13,7 +13,7 @@ use syn::{
 use super::args::{FieldArgs, FunctionArg, StructArgs};
 use super::codegen::Helper;
 use super::utils::{
-    block, combine, format, is_refield, is_same, member_to_string, parse, path_to_string, span,
+    block, combine, format, is_refield, is_same, member_to_string, parse, path_to_string, qs, span,
 };
 
 /// How a missing field value is produced.

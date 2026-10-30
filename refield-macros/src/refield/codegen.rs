@@ -1,5 +1,5 @@
 use proc_macro2::{Delimiter, Group, Ident, Span, TokenStream};
-use quote::{ToTokens, format_ident, quote, quote_spanned as qs};
+use quote::{ToTokens, format_ident, quote};
 use std::collections::HashSet;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
@@ -11,7 +11,7 @@ use syn::{
 
 use super::args::Crate;
 use super::field::{DefaultRule, FieldIr};
-use super::utils::{UniqueId, is_place, member_to_string, parse, path_to_string, sized};
+use super::utils::{UniqueId, is_place, member_to_string, parse, path_to_string, qs, sized};
 
 /// Emit the companion macro shared by `#[derive(Refield)]` structs and
 /// `#[refieldable] type` aliases.
