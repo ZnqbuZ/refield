@@ -23,6 +23,6 @@ jobs:
       with:
         tool: cargo-hack
     - name: Check all feature combinations
-      run: cargo hack check -p refield --feature-powerset --locked
+      run: cargo hack check -p refield --feature-powerset
     - name: Test all feature combinations
-      run: cargo hack test -p refield --feature-powerset --locked
+      run: cargo hack test -p refield --feature-powerset
