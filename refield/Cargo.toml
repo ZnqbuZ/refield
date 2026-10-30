@@ -1,0 +1,22 @@
+[package]
+name = "refield"
+repository.workspace = true
+version.workspace = true
+# Deliberately Rust 2021: the braces `__private::block!` emits keep Rust 2021
+# tail-expression temporary scopes, wherever the macro is expanded. Move to
+# 2024 once `super let` is stable.
+edition = "2021"
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Cross-type struct update syntax and partial projection macros for Rust"
+readme = "../README.md"
+
+[lib]
+
+[dependencies]
+refield-macros = { workspace = true }
+
+[dev-dependencies]
+refield-test-models = { path = "tests/fixtures/models" }
+refield-test-facade-consumer = { path = "tests/fixtures/facade-consumer" }

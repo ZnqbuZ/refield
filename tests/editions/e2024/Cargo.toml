@@ -1,0 +1,58 @@
+[package]
+name = "refield-editions-e2024"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+refield = { path = "../../../refield" }
+
+[lints.rust]
+# Negative cases are switched on with `--cfg` by `../run.sh`.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    "cfg(d44)", "cfg(d45)", "cfg(d48)", "cfg(d51)", "cfg(d52)",
+    "cfg(fields)", "cfg(misplaced)",
+    "cfg(d49_unknown)", "cfg(d49_duplicate)", "cfg(d49_type)", "cfg(d49_attr)",
+    "cfg(missing)", "cfg(mismatch)", "cfg(behind)", "cfg(primitive)",
+    "cfg(deprecated_place)", "cfg(unused_closure)",
+] }
+
+[[bin]]
+name = "d06_d14_source_borrows_e2024"
+path = "../cases/d06_d14_source_borrows.rs"
+
+[[bin]]
+name = "d07_prepare_tle_e2024"
+path = "../cases/d07_prepare_tle.rs"
+
+[[bin]]
+name = "d15_d16_d51_tle_e2024"
+path = "../cases/d15_d16_d51_tle.rs"
+
+[[bin]]
+name = "d17_d24_order_e2024"
+path = "../cases/d17_d24_order.rs"
+
+[[bin]]
+name = "d25_d34_types_and_moves_e2024"
+path = "../cases/d25_d34_types_and_moves.rs"
+
+[[bin]]
+name = "d35_d37_flow_const_async_e2024"
+path = "../cases/d35_d37_flow_const_async.rs"
+
+[[bin]]
+name = "d44_d52_lints_e2024"
+path = "../cases/d44_d52_lints.rs"
+
+[[bin]]
+name = "post_value_e2024"
+path = "../cases/post_value.rs"
+
+[[bin]]
+name = "d49_diagnostics_e2024"
+path = "../cases/d49_diagnostics.rs"
+
+[[bin]]
+name = "source_diagnostics_e2024"
+path = "../cases/source_diagnostics.rs"

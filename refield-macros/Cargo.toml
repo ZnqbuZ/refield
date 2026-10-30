@@ -1,0 +1,22 @@
+[package]
+name = "refield-macros"
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "The procedural macro engine powering the refield crate"
+readme = "../README.md"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+darling = "0.24"
+derive_more = { version = "2.1", features = ["deref"] }
+proc-macro-crate = "3.5"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
+syn = { version = "3", features = ["full", "visit"] }
+unicode-ident = "1"

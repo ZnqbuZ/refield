@@ -1,0 +1,5 @@
+# The same cases built against `refield` as Rust 2021 and Rust 2024 crates,
+# including compile-fail cases checked by their diagnostics. Run `./run.sh`.
+[workspace]
+resolver = "2"
+members = ["e2021", "e2024"]
