@@ -14,7 +14,7 @@ use syn::{
     parse2,
 };
 
-use args::{Crate, ImplArgs, StructArgs, TypeArgs};
+use args::{AliasArgs, Crate, ImplArgs, StructArgs};
 use codegen::{CallInput, ConstructInput, PreparedConstruct, SchemaMacro};
 use field::FieldIr;
 use utils::{
@@ -37,7 +37,7 @@ pub fn proc(args: TokenStream, input: &TokenStream) -> Result<TokenStream> {
             Ok(quote! { #item })
         }
         Item::Type(item) => {
-            let args = TypeArgs::from_list(&NestedMeta::parse_meta_list(args)?)?;
+            let args = AliasArgs::from_list(&NestedMeta::parse_meta_list(args)?)?;
             if let Some(attr) = item.attrs.iter().find(|attr| is_refield(attr)) {
                 return Err(Error::new_spanned(
                     attr,

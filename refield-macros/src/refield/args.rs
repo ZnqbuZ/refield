@@ -151,7 +151,7 @@ pub(super) struct StructArgs {
 
 #[derive(Debug, Default, FromMeta)]
 #[darling(default)]
-pub(super) struct TypeArgs {
+pub(super) struct AliasArgs {
     #[darling(rename = "crate")]
     pub(super) krate: Option<Crate>,
     #[darling(rename = "as")]
