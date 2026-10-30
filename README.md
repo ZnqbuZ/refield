@@ -4,7 +4,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/refield.svg)](https://crates.io/crates/refield)
 [![Documentation](https://docs.rs/refield/badge.svg)](https://docs.rs/refield)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/ZnqbuZ/refield/blob/HEAD/LICENSE)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 [API documentation](https://docs.rs/refield)
 
@@ -661,4 +661,9 @@ reproduction and your Rust version when reporting a problem.
 
 ## License
 
-[MIT](https://github.com/ZnqbuZ/refield/blob/HEAD/LICENSE)
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.

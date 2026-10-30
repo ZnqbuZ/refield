@@ -7,7 +7,7 @@ license.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "The procedural macro engine powering the refield crate"
-readme = "../README.md"
+readme = "README.md"
 
 [lib]
 proc-macro = true

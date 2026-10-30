@@ -9,7 +9,7 @@ edition = "2021"
 license.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Cross-type struct update syntax and partial projection macros for Rust"
+description = "Cross-type struct update macros for Rust, with field renaming, conversions, and partial moves"
 readme = "../README.md"
 
 [lib]

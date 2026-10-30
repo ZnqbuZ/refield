@@ -12,7 +12,7 @@ members = [
 repository = "https://github.com/ZnqbuZ/refield"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 keywords = ["struct", "projection", "spread", "macro", "derive"]
 categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
 
