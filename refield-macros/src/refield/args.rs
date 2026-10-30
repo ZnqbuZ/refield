@@ -139,6 +139,27 @@ impl ToTokens for FunctionArg {
     }
 }
 
+/// A type written directly or as a string, read with the `Parsed` grammar.
+#[derive(Debug)]
+pub(super) struct TypeArg<Parsed>(pub(super) Parsed);
+
+impl<Parsed: Parse> FromMeta for TypeArg<Parsed> {
+    fn from_expr(expr: &Expr) -> darling::Result<Self> {
+        match expr {
+            // The contents of a string must satisfy the same grammar.
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(lit), ..
+            }) => Ok(Self(lit.parse()?)),
+            // Invisible groups appear when the attribute is forwarded through
+            // a `macro_rules!` fragment.
+            Expr::Group(group) => Self::from_expr(&group.expr),
+            // Attribute values parse as expressions; read their tokens again
+            // with the grammar this argument expects.
+            _ => Ok(Self(parse2(expr.to_token_stream())?)),
+        }
+    }
+}
+
 #[derive(Debug, Default, Deref, FromAttributes)]
 #[darling(default, attributes(refield))]
 pub(super) struct StructArgs {
@@ -155,7 +176,7 @@ pub(super) struct AliasArgs {
     #[darling(rename = "crate")]
     pub(super) krate: Option<Crate>,
     #[darling(rename = "as")]
-    pub(super) r#as: Option<Path>,
+    pub(super) r#as: Option<TypeArg<Path>>,
 }
 
 #[derive(Debug, Default, FromMeta)]

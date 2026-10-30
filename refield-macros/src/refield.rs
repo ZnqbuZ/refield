@@ -14,7 +14,7 @@ use syn::{
     parse2,
 };
 
-use args::{AliasArgs, Crate, ImplArgs, StructArgs};
+use args::{AliasArgs, Crate, ImplArgs, StructArgs, TypeArg};
 use codegen::{CallInput, ConstructInput, PreparedConstruct, SchemaMacro};
 use field::FieldIr;
 use utils::{
@@ -50,7 +50,7 @@ pub fn proc(args: TokenStream, input: &TokenStream) -> Result<TokenStream> {
                 // validated here, at the alias definition site. Only the bare path
                 // is kept: it names the companion macro, while the literal path is
                 // the alias itself.
-                Some(path) => bare(&concrete(path)?),
+                Some(TypeArg(path)) => bare(&concrete(path)?),
                 None => nominal(
                     &item.ty,
                     "`refieldable` type aliases must alias a struct or type alias path, or specify `#[refieldable(as = Schema)]`",

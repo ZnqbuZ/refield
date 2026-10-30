@@ -1346,7 +1346,7 @@ fn default_preserves_string_literals_and_non_expr_keys_reject_strings() {
             type Alias = Target;
         },
     )
-    .expect("`as = \"Target\"` parses via standard Path FromMeta")
+    .expect("`as = \"Target\"` reads the string as a path")
     .to_string();
     assert!(output.contains("Target"));
 
@@ -2003,6 +2003,36 @@ fn type_alias_as_path_is_validated_at_the_definition_site() {
         output.contains("Target ! { @ __refield_alias"),
         "the companion macro path drops the generic arguments: `{output}`"
     );
+}
+
+#[test]
+fn type_alias_as_is_read_as_a_path() {
+    // Every case is `(arguments, expected message, expected (start, end))`.
+    for (args, expected, span) in [
+        // A qualified path used to lose its `<T as Trait>::` prefix.
+        (
+            "as = <T as Trait>::Assoc",
+            "expected identifier",
+            ((1, 5), (1, 6)),
+        ),
+        ("as = [u8; 3]", "expected identifier", ((1, 5), (1, 6))),
+        (
+            "as = \"Target<\"",
+            "unexpected end of input, expected one of: `for`, parentheses, `unsafe`, `fn`, \
+             `extern`, identifier, `::`, `<`, `dyn`, square brackets, `*`, `&`, `!`, `impl`, \
+             `_`, lifetime",
+            ((1, 5), (1, 14)),
+        ),
+    ] {
+        let error = proc(
+            parse_fixture(args),
+            &parse_fixture("type Alias = <T as Trait>::Assoc;\n"),
+        )
+        .unwrap_err();
+        assert_eq!(error_count(&error), 1, "{args}");
+        assert_eq!(error.to_string(), expected, "{args}");
+        assert_eq!(token_span(&error.to_compile_error()), span, "{args}");
+    }
 }
 
 #[test]
