@@ -4,6 +4,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/refield.svg)](https://crates.io/crates/refield)
 [![Documentation](https://docs.rs/refield/badge.svg)](https://docs.rs/refield)
+[![CI](https://github.com/ZnqbuZ/refield/actions/workflows/rust.yml/badge.svg)](https://github.com/ZnqbuZ/refield/actions/workflows/rust.yml)
+[![no_std](https://img.shields.io/badge/no__std-compatible-blue.svg)](#why-refield)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
 [API documentation](https://docs.rs/refield)

@@ -1,12 +1,14 @@
 # refield-macros
 
-Procedural macros for the `refield` crate.
+[![crates.io](https://img.shields.io/crates/v/refield-macros.svg)](https://crates.io/crates/refield-macros)
+[![Documentation](https://docs.rs/refield-macros/badge.svg)](https://docs.rs/refield-macros)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-This crate implements the procedural macro engine powering cross-type struct updates in `refield`, including the `#[derive(Refield)]` derive, the `#[refieldable]` attribute macro, the `refield!` construct macro, and companion macro generation.
+Procedural macros for the [`refield`](https://crates.io/crates/refield) crate.
 
-Use the main [`refield`](https://crates.io/crates/refield) crate in your application. It re-exports these macros alongside the runtime primitives.
+This crate is an internal implementation helper and not intended to be used directly. Please depend on the main [`refield`](https://crates.io/crates/refield) crate instead.
 
-See the [project README](https://github.com/ZnqbuZ/refield#readme) for a quick start and the [API documentation](https://docs.rs/refield) for examples and attribute details.
+See the [project README](https://github.com/ZnqbuZ/refield#readme) and [API documentation](https://docs.rs/refield) for usage and examples.
 
 ## License
 
