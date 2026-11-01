@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "refield",
     "refield-macros",
@@ -18,14 +18,3 @@ categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
 
 [workspace.dependencies]
 refield-macros = { version = "0.1.1", path = "refield-macros" }
-
-[profile.dev]
-panic = "unwind"
-debug = 2
-
-[profile.release]
-panic = "abort"
-lto = true
-codegen-units = 1
-opt-level = 3
-strip = true
