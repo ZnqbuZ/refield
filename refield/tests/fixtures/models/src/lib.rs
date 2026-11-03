@@ -9,8 +9,8 @@ use refield::{Refield, refieldable};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawRecord {
     pub origin: Option<String>,
-    pub ttl: Option<u32>,
-    pub records: Option<Vec<String>>,
+    pub ttl: u32,
+    pub records: Vec<String>,
     pub extra_unused: u64,
 }
 

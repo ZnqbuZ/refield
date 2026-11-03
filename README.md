@@ -97,7 +97,7 @@ is in scope under its original name.
 | Heterogeneous conversion | `#[refield(with = \|s: &str\| title_case(s))]` | Names the input type in the pseudo-closure parameter when it differs from the target field type. Also works on the struct. |
 | Per-field bounds | `#[refield(bound(T: Trait))]` | Adds `where` predicates to the generated helper, without constraining the struct. Parentheses syntax only. |
 | `const` helpers | `#[refield(const)]`, `#[refieldable(const)]` | Generates `const fn` conversion/default helpers, so the call works in `const` contexts. |
-| Unwrap or default | `#[refield(default = 60)]` | Uses `Some(value)` from an `Option` source, otherwise the default. |
+| Default value | `#[refield(default = 60)]` | Initializes omitted fields without `..rest`, or when marked `skip`. |
 | Skip + default | `#[refield(skip, default = expr)]` | Never reads the source; initializes from the default. |
 | Per-profile rules | `#[refield(on(fast), name = "fast_{}")]` | Declares an alternate rule; `refield!(Config { @fast ..raw })` selects it, and other fields fall back to their default rules. Multiple attributes for the same profile merge. |
 | Type aliases | `#[refieldable] type Alias = Target;` | Adds a companion macro under the alias's name. |
@@ -221,21 +221,21 @@ fn main() {
 }
 ```
 
-### Unwrap `Option` sources and fill defaults
+### Defaults and skipped fields
 
 ```rust
 use refield::{Refield, refield};
 
 struct Raw {
-    ttl: Option<u32>,
-    hosts: Option<Vec<&'static str>>,
+    ttl: u32,
+    hosts: Vec<&'static str>,
 }
 
 #[derive(Refield, Debug, PartialEq)]
 struct Config {
     #[refield(default = 60)]
     ttl: u32,
-    #[refield(with = |hosts: Vec<&str>| hosts.into_iter().map(str::to_owned).collect(), default)]
+    #[refield(with = |hosts: Vec<&str>| hosts.into_iter().map(str::to_owned).collect())]
     hosts: Vec<String>,
     #[refield(skip, default = String::from("generated"))]
     tag: String,
@@ -243,11 +243,21 @@ struct Config {
 
 fn main() {
     let config = refield!(Config {
-        ..Raw { ttl: None, hosts: Some(vec!["a", "b"]) }
+        ..Raw { ttl: 30, hosts: vec!["a", "b"] }
+    });
+    assert_eq!(config, Config {
+        ttl: 30,
+        hosts: vec!["a".into(), "b".into()],
+        tag: "generated".into(),
+    });
+
+    // Without `..rest`, unwritten fields are initialized from their defaults:
+    let config = refield!(Config {
+        hosts: vec!["c".into()],
     });
     assert_eq!(config, Config {
         ttl: 60,
-        hosts: vec!["a".into(), "b".into()],
+        hosts: vec!["c".into()],
         tag: "generated".into(),
     });
 }

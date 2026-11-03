@@ -472,22 +472,9 @@ impl ConstructInput {
                     group.set_span(open);
                     qs! { close => #group.#member }
                 };
-                let convert = |value| match &rule.with {
-                    None => value,
-                    Some(helper) => qs! { helper.span() => #requested::#helper(#value, #marker) },
-                };
-                let fill = match default {
-                    Some((span, default)) => {
-                        let value = format_ident!("__refield_value", span = Span::mixed_site());
-                        let converted = convert(quote! { #value });
-                        qs! { span =>
-                            match #read {
-                                ::core::option::Option::Some(#value) => #converted,
-                                ::core::option::Option::None => #default,
-                            }
-                        }
-                    }
-                    None => convert(read),
+                let fill = match &rule.with {
+                    None => read,
+                    Some(helper) => qs! { helper.span() => #requested::#helper(#read, #marker) },
                 };
                 Some((field, fill))
             })

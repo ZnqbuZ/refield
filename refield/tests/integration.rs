@@ -85,8 +85,8 @@ fn works_in_const_fn() {
 
 struct RawConfig {
     origin: Option<String>,
-    ttl: Option<u32>,
-    zone: Option<Vec<&'static str>>,
+    ttl: u32,
+    zone: Vec<&'static str>,
     raw_port: u16,
     count: i32,
 }
@@ -113,8 +113,8 @@ struct ParsedConfig {
 fn field_attributes_transform_unwrap_and_skip_as_configured() {
     let raw = RawConfig {
         origin: Some("example.com.".into()),
-        ttl: None,
-        zone: Some(vec!["@ IN A 10.0.0.1"]),
+        ttl: 300,
+        zone: vec!["@ IN A 10.0.0.1"],
         raw_port: 5353,
         count: 21,
     };
@@ -138,8 +138,8 @@ fn field_attributes_transform_unwrap_and_skip_as_configured() {
     // Explicitly overriding defaulted or skipped fields bypasses the auto rules.
     let raw2 = RawConfig {
         origin: None,
-        ttl: Some(60),
-        zone: None,
+        ttl: 60,
+        zone: vec![],
         raw_port: 80,
         count: 1,
     };
@@ -155,6 +155,17 @@ fn field_attributes_transform_unwrap_and_skip_as_configured() {
     assert_eq!(parsed2.count, 2);
     assert_eq!(parsed2.cache_tag, "custom-tag");
     assert_eq!(parsed2.hits, 99);
+
+    // Omitted fields take their defaults when there is no `..rest`.
+    let parsed3 = refield!(ParsedConfig {
+        origin: "no-raw.test.".into(),
+        zones: vec!["@ IN A 127.0.0.1".into()],
+        port: 8080,
+        count: 10,
+    });
+    assert_eq!(parsed3.ttl, 300);
+    assert_eq!(parsed3.cache_tag, "cached");
+    assert_eq!(parsed3.hits, 0);
 }
 
 #[derive(Refield, Debug, PartialEq, Eq)]
@@ -339,8 +350,8 @@ fn visibility_and_import_renaming_and_cross_crate_work() {
 
     let raw_rec = models::RawRecord {
         origin: Some("et.net.".into()),
-        ttl: None,
-        records: None,
+        ttl: 60,
+        records: vec![],
         extra_unused: 123,
     };
     let origin = raw_rec.origin.unwrap();
@@ -1155,7 +1166,7 @@ struct ProfileRaw {
     fast_host: String,
     thorough_host: String,
     port: u16,
-    timeout: Option<u32>,
+    timeout: u32,
     verbose: bool,
     label: &'static str,
 }
@@ -1189,7 +1200,7 @@ fn profile_raw() -> ProfileRaw {
         fast_host: "fast.example".into(),
         thorough_host: "thorough.example".into(),
         port: 100,
-        timeout: None,
+        timeout: 29,
         verbose: true,
         label: "profile",
     }
@@ -1254,7 +1265,7 @@ fn keyword_profile_names_work_through_the_internal_schema() {
 fn profile_rules_leave_explicit_fields_untouched() {
     let raw = ProfileRaw {
         port: 8,
-        timeout: Some(5),
+        timeout: 5,
         verbose: false,
         ..profile_raw()
     };
@@ -1281,7 +1292,7 @@ fn profile_selection_works_with_a_value_rest_expression() {
             fast_host: "fast.example".into(),
             thorough_host: "thorough.example".into(),
             port: 16,
-            timeout: Some(7),
+            timeout: 7,
             verbose: false,
             label: "temp",
         }
@@ -1427,7 +1438,7 @@ fn nested_refield_expands_inner_and_outer_layers_across_types() {
 // Profile rules participate in hygiene: a `with` expression may reuse the
 // names the macro uses for its own temporaries.
 struct HygieneRaw {
-    value: Option<u32>,
+    value: u32,
     flag: bool,
 }
 
@@ -1447,7 +1458,7 @@ struct HygieneTarget {
 #[test]
 fn profile_rules_are_hygienic_against_macro_temporaries() {
     let raw = HygieneRaw {
-        value: Some(4),
+        value: 4,
         flag: true,
     };
     let target = refield!(HygieneTarget { @fast ..raw });
@@ -1460,10 +1471,19 @@ fn profile_rules_are_hygienic_against_macro_temporaries() {
     );
 
     let raw = HygieneRaw {
-        value: None,
+        value: 4,
         flag: true,
     };
     let target = refield!(HygieneTarget { ..raw });
+    assert_eq!(
+        target,
+        HygieneTarget {
+            value: 8,
+            flag: true
+        }
+    );
+
+    let target = refield!(HygieneTarget { flag: true });
     assert_eq!(
         target,
         HygieneTarget {
@@ -1784,7 +1804,7 @@ fn schema_check_preserves_generic_inference_of_the_requested_type() {
 #[derive(Refield, Debug, PartialEq, Eq)]
 struct GenericDefaultTarget<T: Default> {
     a: i32,
-    #[refield(default = T::default())]
+    #[refield(skip, default = T::default())]
     b: T,
     #[refield(skip, default = Vec::<T>::new())]
     c: Vec<T>,
@@ -1793,13 +1813,12 @@ struct GenericDefaultTarget<T: Default> {
 #[allow(dead_code)]
 struct GenericDefaultRaw {
     a: i32,
-    b: Option<String>,
 }
 
 #[test]
 fn generic_default_expressions_resolve_struct_type_parameters() {
     let target = refield!(GenericDefaultTarget::<String> {
-        GenericDefaultRaw { a: 1, b: None }..,
+        GenericDefaultRaw { a: 1 }..,
         a: 1,
     });
     assert_eq!(
@@ -1812,7 +1831,7 @@ fn generic_default_expressions_resolve_struct_type_parameters() {
     );
 
     let target = refield!(GenericDefaultTarget::<u32> {
-        GenericDefaultRaw { a: 2, b: None }..,
+        GenericDefaultRaw { a: 2 }..,
         a: 2,
         b: 9,
     });
@@ -1850,7 +1869,7 @@ mod private_helpers {
         pub tag: String,
         #[refield(with = negate)]
         pub enabled: bool,
-        #[refield(default = fallback_port())]
+        #[refield(skip, default = fallback_port())]
         pub port: u16,
     }
 }
@@ -1858,7 +1877,6 @@ mod private_helpers {
 struct CrossModRaw {
     tag: &'static str,
     enabled: bool,
-    port: Option<u16>,
 }
 
 #[test]
@@ -1866,7 +1884,6 @@ fn private_helper_functions_resolve_at_the_definition_site() {
     let raw = CrossModRaw {
         tag: "  node ",
         enabled: true,
-        port: None,
     };
     let config = refield!(private_helpers::CrossModConfig { ..raw });
     assert_eq!(
@@ -1982,21 +1999,17 @@ const fn const_double(value: u16) -> u16 {
 struct ConstHelperTarget {
     #[refield(const, with = |value| const_double(value))]
     doubled: u16,
-    #[refield(const, default = 2 + 3)]
+    #[refield(skip, const, default = 2 + 3)]
     port: u16,
 }
 
 #[allow(dead_code)]
 struct ConstHelperRaw {
     doubled: u16,
-    port: Option<u16>,
 }
 
 const CONST_HELPER: ConstHelperTarget = refield!(ConstHelperTarget {
-    ..ConstHelperRaw {
-        doubled: 21,
-        port: None
-    }
+    ..ConstHelperRaw { doubled: 21 }
 });
 
 #[test]
@@ -2016,15 +2029,12 @@ fn const_helpers_evaluate_in_const_contexts() {
 struct StructConstTarget {
     #[refield(with = |value| const_double(value))]
     doubled: u16,
-    #[refield(default = 7)]
+    #[refield(skip, default = 7)]
     port: u16,
 }
 
 const STRUCT_CONST: StructConstTarget = refield!(StructConstTarget {
-    ..ConstHelperRaw {
-        doubled: 4,
-        port: None
-    }
+    ..ConstHelperRaw { doubled: 4 }
 });
 
 #[test]
@@ -2068,15 +2078,12 @@ fn helpers_resolve_through_type_aliases() {
 struct ProcConstTarget {
     #[refield(with = |value| const_double(value))]
     doubled: u16,
-    #[refield(default = 1)]
+    #[refield(skip, default = 1)]
     port: u16,
 }
 
 const PROC_CONST: ProcConstTarget = refield!(ProcConstTarget {
-    ..ConstHelperRaw {
-        doubled: 3,
-        port: None
-    }
+    ..ConstHelperRaw { doubled: 3 }
 });
 
 #[test]
@@ -2610,47 +2617,43 @@ fn conversion_panic_keeps_remaining_fields_in_declaration_order() {
 // the derived helper methods must still resolve them from this crate.
 struct CrossCrateRaw<T> {
     host: &'static str,
-    retries: Option<u8>,
-    payload: Option<T>,
+    retries: u8,
+    payload: T,
 }
 
 #[test]
 fn cross_crate_private_helpers_and_generic_defaults_resolve_at_definition_site() {
+    // When fields are omitted without rest, defaults evaluate at the definition site:
     // Turbofish spelling.
-    let raw = CrossCrateRaw {
-        host: "  Cache.Example ",
-        retries: None,
-        payload: Some(vec![1_u8, 2]),
-    };
-    let model = refield!(models::CrossCrateModel::<Vec<u8>> { ..raw });
+    let model = refield!(models::CrossCrateModel::<Vec<u8>> {
+        host: "cache.example".into(),
+    });
     assert_eq!(model.host, "cache.example");
     assert_eq!(
         model.retries, 3,
         "private `default_retries` ran in its crate"
     );
-    assert_eq!(model.payload, vec![1, 2]);
+    assert_eq!(model.payload, Vec::<u8>::new());
 
     // No turbofish: the shared `PhantomData<Self>` passed to every helper and
     // to the schema identity check infers `T` from the annotation, even though
     // the helpers themselves live in another crate.
     let raw = CrossCrateRaw {
         host: "  NoTurbofish.Example ",
-        retries: Some(9),
-        payload: None,
+        retries: 9,
+        payload: vec![1_u8, 2],
     };
     let model: models::CrossCrateModel<Vec<u8>> = refield!(models::CrossCrateModel { ..raw });
     assert_eq!(model.host, "noturbofish.example");
     assert_eq!(model.retries, 9);
-    assert_eq!(model.payload, Vec::<u8>::new());
+    assert_eq!(model.payload, vec![1, 2]);
 
     // The companion macro spelling reaches the same definition-site helpers.
     use models::CrossCrateModel;
-    let raw = CrossCrateRaw {
-        host: " Companion.Example ",
-        retries: None,
-        payload: Some(Vec::<u8>::new()),
+    let model: CrossCrateModel<Vec<u8>> = CrossCrateModel! {
+        host: "companion.example".into(),
+        payload: Vec::<u8>::new(),
     };
-    let model: CrossCrateModel<Vec<u8>> = CrossCrateModel! { ..raw };
     assert_eq!(model.host, "companion.example");
     assert_eq!(model.retries, 3);
 }
@@ -2696,7 +2699,7 @@ struct LocalTupleAliasTarget(i32, #[refield(with = |s: &'static str| s.into())] 
 type LocalTupleAlias = LocalTupleAliasTarget;
 
 // ---------------------------------------------------------------------------
-// 23. Lazy `default` / `with` dispatch on `Option` sources (§1 & §2.3)
+// 23. `default` / `with` evaluation order and omitted fields
 // ---------------------------------------------------------------------------
 
 static LAZY_LOG: EventLog = EventLog::new(Vec::new());
@@ -2711,31 +2714,29 @@ struct LazyTarget {
 }
 
 struct LazyRaw {
-    value: Option<u32>,
+    value: u32,
 }
 
 #[test]
-fn option_sources_dispatch_lazily_between_with_and_default() {
-    // `Some`: only the conversion runs.
+fn default_and_with_rules_evaluate_as_configured() {
+    // With `..rest`: only the conversion runs.
     LAZY_LOG.lock().unwrap().clear();
     let target = refield!(LazyTarget {
-        ..LazyRaw { value: Some(5) }
+        ..LazyRaw { value: 5 }
     });
     assert_eq!(target, LazyTarget { value: 6 });
     assert_eq!(*LAZY_LOG.lock().unwrap(), ["with called"]);
 
-    // `None`: only the default runs.
+    // Without `..rest`: only the default runs.
     LAZY_LOG.lock().unwrap().clear();
-    let target = LazyTarget! {
-        ..LazyRaw { value: None }
-    };
+    let target = LazyTarget! {};
     assert_eq!(target, LazyTarget { value: 30 });
     assert_eq!(*LAZY_LOG.lock().unwrap(), ["default called"]);
 
     // Explicit field: neither rule runs.
     LAZY_LOG.lock().unwrap().clear();
     let target = refield!(LazyTarget {
-        LazyRaw { value: Some(5) }..,
+        LazyRaw { value: 5 }..,
         value: 99,
     });
     assert_eq!(target, LazyTarget { value: 99 });
@@ -2767,11 +2768,15 @@ mod private_interfaces {
         pub(crate) secret: PrivateFieldType,
     }
 
-    pub fn build(secret: Option<u8>) -> PubStructWithPrivateField {
+    pub fn build(secret: u8) -> PubStructWithPrivateField {
         struct Raw {
-            secret: Option<u8>,
+            secret: u8,
         }
         refield::refield!(PubStructWithPrivateField { ..Raw { secret } })
+    }
+
+    pub fn build_default() -> PubStructWithPrivateField {
+        refield::refield!(PubStructWithPrivateField {})
     }
 
     pub fn value(target: &PubStructWithPrivateField) -> u8 {
@@ -2789,13 +2794,9 @@ mod private_interfaces {
 
 #[test]
 fn public_struct_with_private_field_types_stays_lint_clean() {
-    // `Some` runs the `with` helper, `None` runs the `default` helper.
+    assert_eq!(private_interfaces::value(&private_interfaces::build(1)), 2);
     assert_eq!(
-        private_interfaces::value(&private_interfaces::build(Some(1))),
-        2
-    );
-    assert_eq!(
-        private_interfaces::value(&private_interfaces::build(None)),
+        private_interfaces::value(&private_interfaces::build_default()),
         7
     );
 
@@ -3698,18 +3699,13 @@ struct OnArgumentTarget {
 #[test]
 fn on_inside_a_with_expression_is_not_a_profile() {
     struct Raw {
-        value: Option<u8>,
+        value: u8,
     }
-    // The rule is a plain default rule: `Some` runs the conversion, `None`
-    // runs the default. Before the fix the attribute became a profile rule
-    // and the default rule silently stayed the identity.
     let target = refield!(OnArgumentTarget {
-        ..Raw { value: Some(41) }
+        ..Raw { value: 41 }
     });
     assert_eq!(target, OnArgumentTarget { value: 42 });
-    let target = refield!(OnArgumentTarget {
-        ..Raw { value: None }
-    });
+    let target = refield!(OnArgumentTarget {});
     assert_eq!(target, OnArgumentTarget { value: 1 });
 }
 
@@ -3775,7 +3771,7 @@ struct ClosureSignatureTarget {
 struct ClosureSignatureRaw {
     widened: u8,
     inferred: u8,
-    blocky: Option<u8>,
+    blocky: u8,
 }
 
 #[test]
@@ -3785,7 +3781,7 @@ fn closure_returns_and_block_bodies_are_preserved() {
         ..ClosureSignatureRaw {
             widened: 41,
             inferred: 1,
-            blocky: Some(1),
+            blocky: 1,
         }
     });
     assert_eq!(
@@ -3798,11 +3794,8 @@ fn closure_returns_and_block_bodies_are_preserved() {
     );
 
     let target = refield!(ClosureSignatureTarget {
-        ..ClosureSignatureRaw {
-            widened: 0,
-            inferred: 0,
-            blocky: None,
-        }
+        widened: 0,
+        inferred: 0,
     });
     assert_eq!(target.blocky, 7);
 }
@@ -3910,16 +3903,14 @@ impl UserHelperNames {
 #[test]
 fn user_methods_named_like_generated_helpers_do_not_collide() {
     struct Raw {
-        a: Option<u8>,
+        a: u8,
     }
-    let target = refield!(UserHelperNames {
-        ..Raw { a: Some(1) }
-    });
+    let target = refield!(UserHelperNames { ..Raw { a: 1 } });
     assert_eq!(target.a, 2);
     assert_eq!(target.__refield_with_a_0(), 102);
     assert_eq!(target.__refield_default_a_0(), 202);
 
-    let target = refield!(UserHelperNames { ..Raw { a: None } });
+    let target = refield!(UserHelperNames {});
     assert_eq!(target.a, 1);
 }
 
@@ -5783,20 +5774,18 @@ mod unannotated_inference {
     }
 
     struct NamedRaw<'a> {
-        name: Option<&'a String>,
+        name: &'a String,
     }
 
     #[test]
-    fn an_option_source_coerces_to_the_field_type() {
-        // `Some(&String)` becomes `&str` at the field, like a native literal.
+    fn a_source_field_coerces_to_the_field_type() {
+        // `&String` becomes `&str` at the field, like a native literal.
         let owned = String::from("owned");
         let named = refield!(Named {
-            ..NamedRaw { name: Some(&owned) }
+            ..NamedRaw { name: &owned }
         });
         assert_eq!(named.name, "owned");
-        let named = refield!(Named {
-            ..NamedRaw { name: None }
-        });
+        let named = refield!(Named {});
         assert_eq!(named.name, "anonymous");
     }
 }

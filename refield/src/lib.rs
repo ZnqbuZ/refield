@@ -174,7 +174,7 @@
 //! | --- | --- | --- |
 //! | `name = "..."` | field, struct | Reads the automatic value from a differently named source field. `{}` expands to the target field's name. On a struct, applies to every automatic field. |
 //! | `with = value` | field, struct | Converts the automatic value. Accepts a pseudo-closure (`\|pattern: Type\| body`) or a function path (use a typed parameter, e.g. `\|x: SrcType\|` ..., for heterogeneous source types). On a struct, applies to every automatic field. |
-//! | `default` / `default = expr` | field | Fills a missing value: unwraps an `Option` source, or initializes the field when there is no `..rest`. |
+//! | `default` / `default = expr` | field | Fills an omitted or skipped field: initializes the field when there is no `..rest` or when marked `skip`. |
 //! | `skip` | field | Never reads the field from `..rest`; initializes it from its default. Combine with `default = expr` to choose the value. |
 //! | `bound(...)` | field | Adds `where` predicates to the generated helper method. Parentheses syntax only. |
 //! | `const` | field, struct | Generates `const fn` helper methods. On a struct, applies to every helper. |
@@ -392,16 +392,16 @@
 //!     pub struct Config<T: Default> {
 //!         pub port: u16,
 //!         // `T::default()` resolves against the struct's own type parameter.
-//!         #[refield(default = T::default())]
+//!         #[refield(skip, default = T::default())]
 //!         pub fallback: T,
 //!         #[refield(with = |text: &str| parse_port(text))]
 //!         pub raw_port_text: u16,
 //!     }
 //! }
 //!
-//! struct Raw { raw_port_text: &'static str, fallback: Option<String> }
+//! struct Raw { raw_port_text: &'static str }
 //!
-//! let raw = Raw { raw_port_text: " 9090 ", fallback: None };
+//! let raw = Raw { raw_port_text: " 9090 " };
 //! let config = refield!(model::Config::<String> { port: 1, ..raw });
 //! assert_eq!(config.port, 1);
 //! assert_eq!(config.raw_port_text, 9090);
@@ -446,13 +446,13 @@
 //! struct Config {
 //!     #[refield(with = |value| double(value))]
 //!     doubled: u16,
-//!     #[refield(default = 60)]
+//!     #[refield(skip, default = 60)]
 //!     ttl: u16,
 //! }
 //!
-//! struct Raw { doubled: u16, ttl: Option<u16> }
+//! struct Raw { doubled: u16 }
 //!
-//! const CONFIG: Config = refield!(Config { ..Raw { doubled: 21, ttl: None } });
+//! const CONFIG: Config = refield!(Config { ..Raw { doubled: 21 } });
 //! assert_eq!(CONFIG, Config { doubled: 42, ttl: 60 });
 //! ```
 //!
@@ -483,11 +483,10 @@
 //! assert!(refield!(Config { ..Raw { off: false } }).on);
 //! ```
 //!
-//! `default` has two modes:
+//! `default` fills a field when there is no source value:
 //!
-//! - **With `..rest`**: the source member must be an `Option<T>`. `Some(value)` is used (after
-//!   `with`), and `None` yields the default.
-//! - **Without `..rest`**: the field is always initialized from the default.
+//! - **Without `..rest`**: unwritten fields are initialized from their defaults.
+//! - **With `..rest` and `skip`**: the field is skipped during extraction and initialized from its default.
 //!
 //! Bare `default` means `Default::default()`; `default = expr` supplies any expression.
 //! `skip` implies `default` and removes the field from extraction entirely, which is useful for
@@ -497,18 +496,17 @@
 //! use refield::{Refield, refield};
 //!
 //! struct Raw {
-//!     ttl: Option<u32>,
-//!     retries: Option<u32>,
-//!     hosts: Option<Vec<&'static str>>,
+//!     ttl: u32,
+//!     hosts: Vec<&'static str>,
 //! }
 //!
 //! #[derive(Refield, Debug, PartialEq)]
 //! struct Config {
 //!     #[refield(default = 60)]
 //!     ttl: u32,
-//!     #[refield(default)]
+//!     #[refield(skip, default)]
 //!     retries: u32,
-//!     #[refield(with = |hosts: Vec<&str>| hosts.into_iter().map(str::to_owned).collect(), default)]
+//!     #[refield(with = |hosts: Vec<&str>| hosts.into_iter().map(str::to_owned).collect())]
 //!     hosts: Vec<String>,
 //!     #[refield(skip, default = String::from("generated"))]
 //!     tag: String,
@@ -517,12 +515,12 @@
 //! }
 //!
 //! let config = refield!(Config {
-//!     ..Raw { ttl: Some(30), retries: None, hosts: None }
+//!     ..Raw { ttl: 30, hosts: vec!["a", "b"] }
 //! });
 //! assert_eq!(config, Config {
 //!     ttl: 30,
 //!     retries: 0,
-//!     hosts: Vec::new(),
+//!     hosts: vec!["a".into(), "b".into()],
 //!     tag: "generated".into(),
 //!     hits: 0,
 //! });
@@ -1604,8 +1602,8 @@ extern crate self as refield;
 ///   pseudo-closure takes its input from its own parameter
 ///   (`#[refield(with = |s: &str| s.to_uppercase())]`). Modifiers such as `async`, `move`,
 ///   `const`, and `for<...>` are not part of this grammar and are syntax errors.
-/// - `#[refield(default)]` / `#[refield(default = expr)]`: fills a missing value. With `..rest`,
-///   the source field must be an `Option<T>`; without `..rest`, the default always applies.
+/// - `#[refield(default)]` / `#[refield(default = expr)]`: initializes the field when there is no
+///   `..rest`, or when combined with `skip`.
 /// - `#[refield(skip)]`: never reads the field from `..rest` and initializes it with
 ///   `Default::default()`. Combine with `default = expr` to choose the value. `skip` cannot be
 ///   combined with `name` or `with`.
