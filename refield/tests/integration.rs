@@ -3742,11 +3742,11 @@ fn crate_argument_after_a_path_valued_with_is_honored() {
 
 #[derive(Refield, Debug, PartialEq, Eq)]
 struct ClosureSignatureTarget {
-    // The explicit return type is part of the helper's signature.
-    #[refield(with = |value: u8| -> u16 { u16::from(value) + 1 })]
+    // The helper always returns the field type; the body widens the value.
+    #[refield(with = |value: u8| { u16::from(value) + 1 })]
     widened: u16,
-    // `-> _` keeps the field's type.
-    #[refield(with = |value: u8| -> _ { value + 1 })]
+    // The body is checked against the field's type.
+    #[refield(with = |value: u8| { value + 1 })]
     inferred: u8,
     // A block-bodied closure and a block default are spliced in directly, so
     // `#[deny(unused_braces)]` below has nothing to flag.
@@ -3763,7 +3763,7 @@ struct ClosureSignatureRaw {
 
 #[test]
 #[deny(unused_braces)]
-fn closure_returns_and_block_bodies_are_preserved() {
+fn closure_signatures_and_block_bodies_are_preserved() {
     let target = refield!(ClosureSignatureTarget {
         ..ClosureSignatureRaw {
             widened: 41,
@@ -5774,5 +5774,212 @@ mod unannotated_inference {
         assert_eq!(named.name, "owned");
         let named = refield!(Named {});
         assert_eq!(named.name, "anonymous");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 50. Generic `with(...)` pseudo-closures
+// ---------------------------------------------------------------------------
+
+mod generic_with {
+    use super::*;
+
+    struct Raw {
+        id: u8,
+        count: u16,
+        name: &'static str,
+        tag: &'static str,
+    }
+
+    // A struct-level generic helper, a field-level one with a lifetime and an
+    // unsized parameter, and a plain field-level override.
+    #[derive(Refield, Debug, PartialEq, Eq)]
+    #[refield(with(<T> |value: T| where u64: From<T> { u64::from(value) }))]
+    struct Stats {
+        id: u64,
+        count: u64,
+        #[refield(with(<'a, T: ?Sized> |x: &'a T| where &'a T: Into<String> { x.into() }))]
+        name: String,
+        #[refield(with = |x: &str| x.len() as u64)]
+        tag: u64,
+    }
+
+    #[test]
+    fn generic_helpers_infer_their_parameters_from_the_source() {
+        let stats = refield!(Stats {
+            ..Raw {
+                id: 1,
+                count: 2,
+                name: "stats",
+                tag: "abc",
+            }
+        });
+        assert_eq!(
+            stats,
+            Stats {
+                id: 1,
+                count: 2,
+                name: "stats".into(),
+                tag: 3,
+            }
+        );
+    }
+
+    #[derive(Refield, Debug, PartialEq, Eq)]
+    #[refield(with(<T> |value: T| where u64: From<T> { u64::from(value) }))]
+    struct Wide {
+        a: u64,
+        b: u64,
+    }
+
+    struct Bytes {
+        a: u8,
+        b: u8,
+    }
+
+    struct Words {
+        a: u16,
+        b: u32,
+    }
+
+    #[test]
+    fn one_generic_helper_accepts_several_source_types() {
+        assert_eq!(
+            refield!(Wide {
+                ..Bytes { a: 1, b: 2 }
+            }),
+            Wide { a: 1, b: 2 }
+        );
+        assert_eq!(
+            refield!(Wide {
+                ..Words { a: 300, b: 70_000 }
+            }),
+            Wide { a: 300, b: 70_000 }
+        );
+    }
+
+    // The struct's own `T` is used without being declared, next to a const
+    // parameter inferred from an array length.
+    #[derive(Refield, Debug, PartialEq, Eq)]
+    struct Wrap<T> {
+        #[refield(with(<U> |v: U| where T: From<U> { T::from(v) }))]
+        a: T,
+        #[refield(with(<const N: usize> |_: [u8; N]| N))]
+        n: usize,
+    }
+
+    struct RawWrap {
+        a: u8,
+        n: [u8; 3],
+    }
+
+    #[test]
+    fn generic_helpers_use_the_structs_own_parameters() {
+        let wrap = refield!(Wrap::<u32> {
+            ..RawWrap { a: 7, n: [0; 3] }
+        });
+        assert_eq!(wrap, Wrap { a: 7u32, n: 3 });
+    }
+
+    #[derive(Refield, Debug, PartialEq, Eq)]
+    struct Profiled {
+        #[refield(on(wide), with(<T> |v: T| where u64: From<T> { u64::from(v) * 10 }))]
+        value: u64,
+    }
+
+    struct ProfiledRaw<T> {
+        value: T,
+    }
+
+    #[test]
+    fn profile_rules_accept_generic_helpers() {
+        let plain = refield!(Profiled {
+            ..ProfiledRaw { value: 3u64 }
+        });
+        assert_eq!(plain.value, 3);
+        let wide = refield!(Profiled { @wide ..ProfiledRaw { value: 3u8 } });
+        assert_eq!(wide.value, 30);
+    }
+
+    #[refieldable(with(<T> |v: T| where u64: From<T> { u64::from(v) + 1 }))]
+    #[derive(Debug, PartialEq, Eq)]
+    struct Proc {
+        a: u64,
+        b: u64,
+    }
+
+    #[test]
+    fn refieldable_accepts_generic_with() {
+        assert_eq!(
+            refield!(Proc {
+                ..Bytes { a: 1, b: 2 }
+            }),
+            Proc { a: 2, b: 3 }
+        );
+    }
+
+    #[derive(Refield, Debug, PartialEq, Eq)]
+    struct Lengths {
+        #[refield(const, with(<const N: usize> |_: [u8; N]| N))]
+        len: usize,
+    }
+
+    struct LengthsRaw<const N: usize> {
+        len: [u8; N],
+    }
+
+    const LENGTHS: Lengths = refield!(Lengths {
+        ..LengthsRaw { len: [0; 4] }
+    });
+
+    #[test]
+    fn const_generic_helpers_evaluate_in_const_contexts() {
+        assert_eq!(LENGTHS, Lengths { len: 4 });
+    }
+
+    macro_rules! forwarded {
+        ($($with:tt)*) => {
+            #[derive(Refield, Debug, PartialEq, Eq)]
+            struct Forwarded {
+                #[refield($($with)*)]
+                value: u64,
+            }
+        };
+    }
+
+    forwarded!(with(<T> |v: T| where u64: From<T> { u64::from(v) + 1 }));
+
+    struct ForwardedRaw {
+        value: u16,
+    }
+
+    #[test]
+    fn generic_with_survives_macro_rules_forwarding() {
+        assert_eq!(
+            refield!(Forwarded {
+                ..ForwardedRaw { value: 41 }
+            }),
+            Forwarded { value: 42 }
+        );
+    }
+
+    macro_rules! input {
+        ($ty:ty) => {
+            $ty
+        };
+    }
+
+    #[derive(Refield)]
+    struct MacroInput {
+        #[refield(with(<T> |v: input!(T)| where T: Into<u64> { v.into() }))]
+        value: u64,
+    }
+
+    #[test]
+    fn generic_parameters_inside_type_macros_are_inferred_by_rustc() {
+        let target = refield!(MacroInput {
+            ..ForwardedRaw { value: 42 }
+        });
+        assert_eq!(target.value, 42);
     }
 }

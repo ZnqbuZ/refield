@@ -2456,22 +2456,29 @@ fn parse_pseudo_closure(source: &str) -> PseudoClosure {
 #[test]
 fn pseudo_closure_parses_closures() {
     let typed = parse_pseudo_closure("|v: u8| v + 1");
-    assert_eq!(typed.inputs.len(), 1);
-    assert!(matches!(typed.output, syn::ReturnType::Default));
+    assert!(typed.generics.params.is_empty());
+    assert!(typed.generics.where_clause.is_none());
+    assert_eq!(typed.param.pat.to_token_stream().to_string(), "v");
+    assert_eq!(typed.param.ty.to_token_stream().to_string(), "u8");
+    assert_eq!(typed.body.to_token_stream().to_string(), "v + 1");
 
     let untyped = parse_pseudo_closure("|v| v + 1");
-    assert_eq!(untyped.inputs.len(), 1);
+    assert_eq!(untyped.param.pat.to_token_stream().to_string(), "v");
+    assert!(matches!(*untyped.param.ty, syn::Type::Infer(_)));
 
     let infer = parse_pseudo_closure("|v: _| v + 1");
-    assert_eq!(infer.inputs.len(), 1);
+    assert!(matches!(*infer.param.ty, syn::Type::Infer(_)));
 
-    let returned = parse_pseudo_closure("|v: u8| -> u16 { u16::from(v) }");
-    assert_eq!(returned.inputs.len(), 1);
-    assert!(matches!(returned.output, syn::ReturnType::Type(..)));
+    assert_eq!(
+        error_message(syn::parse_str::<PseudoClosure>(
+            "|v: u8| -> u16 { u16::from(v) }"
+        )),
+        "`with` closure cannot declare a return type; it always returns the field type"
+    );
 
     let from_string = PseudoClosure::from_meta(&syn::parse_quote!(with = "|v: u8| v + 1"))
         .expect("string spelling is supported");
-    assert_eq!(from_string.inputs.len(), 1);
+    assert_eq!(from_string.param.ty.to_token_stream().to_string(), "u8");
 
     let bad_string = PseudoClosure::from_meta(&syn::parse_quote!(with = "|a, b| a"));
     assert!(
@@ -2546,42 +2553,28 @@ fn underscore_closure_inputs_take_the_field_type() {
 }
 
 #[test]
-fn explicit_closure_return_type_is_preserved() {
-    let file = derive_file(quote! {
-        struct Sample {
-            #[refield(with = |v: u8| -> u16 { u16::from(v) })]
-            value: u16,
-        }
-    });
-    let helper = helper_method(derived_impl(&file), "__refield_with_value_0");
-    assert_eq!(
-        helper
-            .sig
-            .output
-            .to_token_stream()
-            .to_string()
-            .replace(' ', ""),
-        "->u16",
-        "the closure's declared return type becomes the helper's return type"
-    );
-
-    // `-> _` keeps the field type.
-    let file = derive_file(quote! {
-        struct Sample {
-            #[refield(with = |v: u8| -> _ { v })]
-            value: u8,
-        }
-    });
-    let helper = helper_method(derived_impl(&file), "__refield_with_value_0");
-    assert_eq!(
-        helper
-            .sig
-            .output
-            .to_token_stream()
-            .to_string()
-            .replace(' ', ""),
-        "->u8"
-    );
+fn explicit_closure_return_type_is_rejected() {
+    for attribute in [
+        quote! { with = |v: u8| -> u16 { u16::from(v) } },
+        quote! { with = |v: u8| -> _ { v } },
+        quote! { with(|v: u8| -> u16 { u16::from(v) }) },
+        quote! { with(<T> |v: T| -> u8 where T: Into<u8> { v.into() }) },
+    ] {
+        let message = derive_field_error(attribute.clone());
+        assert!(
+            message.contains(
+                "`with` closure cannot declare a return type; it always returns the field type"
+            ),
+            "`{attribute}`: got `{message}`"
+        );
+    }
+    for source in ["|v: u8| -> u16 { u16::from(v) }", "|v: u8| -> _ { v }"] {
+        assert_eq!(
+            error_message(syn::parse_str::<PseudoClosure>(source)),
+            "`with` closure cannot declare a return type; it always returns the field type",
+            "`{source}`"
+        );
+    }
 }
 
 #[test]
@@ -2612,6 +2605,247 @@ fn block_expressions_are_not_wrapped_in_extra_braces() {
             !block.contains("{ {"),
             "the expression block must be spliced in directly: `{block}`"
         );
+    }
+}
+
+// -----------------------------------------------------------------------
+// `with(...)`: generic pseudo-closures
+// -----------------------------------------------------------------------
+
+fn compact(tokens: impl ToTokens) -> String {
+    tokens.to_token_stream().to_string().replace(' ', "")
+}
+
+#[test]
+fn pseudo_closure_parses_generics_and_where_clauses() {
+    let closure =
+        parse_pseudo_closure("<'a, T: ?Sized> |v: &'a T| where &'a T: Into<u8> { v.into() }");
+    assert_eq!(compact(&closure.generics.params), "'a,T:?Sized");
+    assert_eq!(
+        closure
+            .generics
+            .where_clause
+            .as_ref()
+            .map(|clause| compact(&clause.predicates)),
+        Some("&'aT:Into<u8>".to_owned())
+    );
+    assert_eq!(compact(&closure.param.ty), "&'aT");
+    assert!(matches!(closure.body, syn::Expr::Block(_)));
+
+    // Without a `where` clause the body need not be a block.
+    let closure = parse_pseudo_closure("<const N: usize> |v: [u8; N]| N");
+    assert_eq!(compact(&closure.generics.params), "constN:usize");
+    assert!(closure.generics.where_clause.is_none());
+    assert!(matches!(closure.body, syn::Expr::Path(_)));
+
+    // An untyped parameter is still read as `pattern: _`.
+    let closure = parse_pseudo_closure("<'a> |v| v");
+    assert!(matches!(*closure.param.ty, syn::Type::Infer(_)));
+
+    // The list form takes the same grammar, with or without generics.
+    let list = PseudoClosure::from_meta(
+        &syn::parse_quote!(with(<T> |v: T| where T: Into<u8> { v.into() })),
+    )
+    .expect("the list form is supported");
+    assert_eq!(compact(&list.generics.params), "T");
+    assert!(list.generics.where_clause.is_some());
+    let list = PseudoClosure::from_meta(&syn::parse_quote!(with(|v: u8| v + 1)))
+        .expect("the list form works without generics");
+    assert!(list.generics.params.is_empty());
+    assert_eq!(compact(&list.param.ty), "u8");
+
+    // A string carries the full grammar as well.
+    let string = PseudoClosure::from_meta(&syn::parse_quote!(
+        with = "<T> |v: T| where T: Into<u8> { v.into() }"
+    ))
+    .expect("a string may carry generics");
+    assert_eq!(compact(&string.generics.params), "T");
+}
+
+#[test]
+fn pseudo_closure_rejects_malformed_generic_forms() {
+    // A `where` clause needs a block body.
+    assert_error(
+        syn::parse_str::<PseudoClosure>("<T> |v: T| where T: Into<u8> v.into()"),
+        "expected curly braces",
+    );
+    // A return type is rejected in the list form too.
+    assert_error(
+        syn::parse_str::<PseudoClosure>("<T> |v: T| -> u8 where T: Into<u8> { v.into() }"),
+        "`with` closure cannot declare a return type; it always returns the field type",
+    );
+    // Generic parameters without a closure.
+    assert_error(
+        syn::parse_str::<PseudoClosure>("<T> convert"),
+        "expected pseudo-closure `|pattern: Type| body`",
+    );
+    // A bare `with` has no closure.
+    assert_error(
+        PseudoClosure::from_meta(&syn::parse_quote!(with)),
+        "Unexpected meta-item format `word`",
+    );
+    // The parameter count is checked in the list form as well.
+    for attribute in [
+        quote! { with(<T> || 1) },
+        quote! { with(<T> |a: T, b: T| a) },
+    ] {
+        let message = derive_field_error(attribute.clone());
+        assert!(
+            message.contains("`with` closure must take exactly one parameter"),
+            "`{attribute}`: got `{message}`"
+        );
+    }
+    // Everything outside the grammar stays rejected in parentheses, and so
+    // do trailing tokens after the body.
+    for attribute in [
+        quote! { with(negate) },
+        quote! { with(move |v: u8| v) },
+        quote! { with(for<'a> |v: &'a u8| *v) },
+        quote! { with(|v: u8| v, |w: u8| w) },
+        quote! { with(<Target as Trait>::convert) },
+    ] {
+        assert!(
+            derive(quote! {
+                struct Sample {
+                    #[refield(#attribute)]
+                    value: u8,
+                }
+            })
+            .is_err(),
+            "`{attribute}` is outside the `with` grammar"
+        );
+    }
+    // Generic parameters cannot start the value after `=`.
+    assert!(
+        derive(quote! {
+            struct Sample {
+                #[refield(with = <T> |v: T| v)]
+                value: u8,
+            }
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn generic_with_closures_become_generic_helpers() {
+    let file = derive_file(quote! {
+        struct Sample {
+            #[refield(
+                bound(u8: Copy),
+                with(<'a, T: ?Sized> |v: &'a T| where &'a T: Into<u8> { v.into() })
+            )]
+            value: u8,
+            #[refield(with(<'a> |v| v), default = 1)]
+            plain: u8,
+        }
+    });
+    let item_impl = derived_impl(&file);
+
+    let helper = helper_method(item_impl, "__refield_with_value_0");
+    assert_eq!(compact(&helper.sig.generics.params), "'a,T:?Sized");
+    let predicates = helper
+        .sig
+        .generics
+        .where_clause
+        .as_ref()
+        .expect("helpers always have a `where` clause")
+        .predicates
+        .iter()
+        .map(compact)
+        .collect::<Vec<_>>();
+    for expected in ["Self:::core::marker::Sized", "u8:Copy", "&'aT:Into<u8>"] {
+        assert!(
+            predicates.iter().any(|predicate| predicate == expected),
+            "missing `{expected}` in `{predicates:?}`"
+        );
+    }
+    let input = match helper.sig.inputs.first() {
+        Some(syn::FnArg::Typed(input)) => compact(&input.ty),
+        other => panic!("expected a typed parameter, got `{}`", compact(other)),
+    };
+    assert_eq!(input, "&'aT");
+    assert_eq!(
+        compact(&helper.sig.output),
+        "->u8",
+        "the helper returns the field type"
+    );
+
+    // An untyped parameter of a generic closure takes the field type.
+    let helper = helper_method(item_impl, "__refield_with_plain_0");
+    assert_eq!(compact(&helper.sig.generics.params), "'a");
+    let input = match helper.sig.inputs.first() {
+        Some(syn::FnArg::Typed(input)) => compact(&input.ty),
+        other => panic!("expected a typed parameter, got `{}`", compact(other)),
+    };
+    assert_eq!(input, "u8");
+
+    // `default` helpers never take generics.
+    let helper = helper_method(item_impl, "__refield_default_plain_0");
+    assert!(helper.sig.generics.params.is_empty());
+}
+
+#[test]
+fn struct_level_generic_with_gives_one_generic_helper_per_field() {
+    let file = derive_file(quote! {
+        #[refield(with(<T> |v: T| where u64: From<T> { u64::from(v) }))]
+        struct Stats {
+            a: u64,
+            b: u64,
+            #[refield(skip)]
+            c: u64,
+        }
+    });
+    let item_impl = derived_impl(&file);
+    for name in ["__refield_with_a_0", "__refield_with_b_0"] {
+        assert_eq!(helper_count(item_impl, name), 1, "`{name}`");
+        let helper = helper_method(item_impl, name);
+        assert_eq!(compact(&helper.sig.generics.params), "T", "`{name}`");
+        assert!(
+            compact(&helper.sig.generics.where_clause).contains("u64:From<T>"),
+            "`{name}`"
+        );
+    }
+    assert_eq!(helper_count(item_impl, "__refield_with_c_0"), 0);
+}
+
+#[test]
+fn generic_with_parameters_are_forwarded() {
+    for attribute in [
+        quote! { with(<T> |v: T| where T: Into<u8> { v.into() }) },
+        // Through an associated type binding.
+        quote! { with(<T, U> |v: T| where T: IntoIterator<Item = U> { 0 }) },
+        // Through a bound on another type.
+        quote! { with(<T> |v: u8| where u8: From<T> { v }) },
+        // Through an inline bound.
+        quote! { with(<T: IntoIterator<Item = U>, U> |v: T| 0) },
+        quote! { with(<'a, T: ?Sized> |v: &'a T| where &'a T: Into<u8> { v.into() }) },
+        quote! { with(<const N: usize> |v: [u8; N]| N as u8) },
+        quote! { with(<'a> |v| v) },
+    ] {
+        if let Err(error) = derive(quote! {
+            struct Sample {
+                #[refield(#attribute)]
+                value: u8,
+            }
+        }) {
+            panic!("`{attribute}` should be accepted: {error}");
+        }
+    }
+}
+
+#[test]
+fn generic_with_closures_use_the_structs_parameters() {
+    // struct 的泛型参数可直接使用，无需重新声明。
+    if let Err(error) = derive(quote! {
+        struct Sample<'a, T> {
+            #[refield(with(<U> |v: U| where T: From<U> { T::from(v) }))]
+            value: T,
+            #[refield(with(<'b> |v: &'b &'a u8| *v))]
+            other: &'a u8,
+        }
+    }) {
+        panic!("the struct's own parameters need no declaration: {error}");
     }
 }
 

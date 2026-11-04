@@ -6,9 +6,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{
-    Error, Expr, Field, Fields, Index, Member, Pat, Path, Result, ReturnType, Token, Type, UnOp,
-};
+use syn::{Error, Expr, Field, Fields, Index, Member, Path, Result, Token, Type, UnOp};
 
 use super::args::{FieldArgs, StructArgs};
 use super::codegen::Helper;
@@ -111,35 +109,18 @@ impl FieldRule {
                 "{check}_with_{name}_{index}",
                 span = Span::mixed_site().located_at(with.span())
             );
-            let param = with
-                .inputs
-                .first()
-                .expect("closure parameter count is validated while parsing `with`");
             // An untyped parameter, or `_` as its type, takes the field type.
-            let (pat, input) = match param {
-                Pat::Type(param) => {
-                    let input = match &*param.ty {
-                        Type::Infer(_) => field.ty.clone(),
-                        ty => ty.clone(),
-                    };
-                    ((*param.pat).clone(), input)
-                }
-                pat => (pat.clone(), field.ty.clone()),
-            };
-            // The closure's declared return type is part of its signature,
-            // so it becomes the helper's return type. A mismatch with the
-            // field is then reported by the compiler instead of being
-            // discarded.
-            let output = match &with.output {
-                ReturnType::Type(_, ty) if !matches!(**ty, Type::Infer(_)) => (**ty).clone(),
-                _ => field.ty.clone(),
+            let input = match &*with.param.ty {
+                Type::Infer(_) => &field.ty,
+                ty => ty,
             };
             helpers.push(
                 Helper {
                     vis: &field.vis,
                     ident: &ident,
-                    input: Some((&pat, &input)),
-                    output: &output,
+                    generics: Some(&with.generics),
+                    input: Some((&with.param.pat, input)),
+                    output: &field.ty,
                     body: block(&with.body),
                     bounds: &bounds,
                     konst,
@@ -172,6 +153,7 @@ impl FieldRule {
                         Helper {
                             vis: &field.vis,
                             ident: &ident,
+                            generics: None,
                             input: None,
                             output: &field.ty,
                             body: block(expr),

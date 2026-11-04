@@ -3,14 +3,16 @@ use darling::{FromAttributes, FromMeta};
 use derive_more::Deref;
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident};
+use quote::{ToTokens, format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
-    Error, Expr, ExprClosure, ExprLit, Lit, LitStr, Meta, Path, Result, Token, WherePredicate,
-    parse_quote, parse2,
+    Error, Expr, ExprBlock, ExprLit, Generics, Lit, LitStr, Meta, Pat, PatType, Path, Result,
+    Token, WherePredicate, parse_quote, parse2,
 };
+
+use super::utils::pqs;
 
 #[derive(Debug, FromMeta)]
 #[darling(default)]
@@ -75,40 +77,108 @@ pub(super) struct GeneralArgs {
     pub(super) konst: Flag,
 }
 
-/// The conversion written after `with`.
+/// The conversion written as `with = ...` or `with(...)`.
 ///
-/// Only pseudo-closure shorthand (`|pattern: Type| body`) is accepted. Any
-/// other expression is a syntax error at the point where the value starts,
-/// which keeps unsupported closure modifiers (`async`, `move`, `const`,
-/// `for<...>`) and bare function paths out of the grammar.
-#[derive(Debug, Deref)]
-pub(super) struct PseudoClosure(ExprClosure);
+/// Only pseudo-closure shorthand is accepted: `|pattern: Type| body`,
+/// optionally preceded by generic parameters and followed by a `where` clause
+/// and a block body (`<T> |pattern: T| where T: Trait { body }`); those two
+/// only fit in `with(...)`. Any other expression is a syntax error at the
+/// point where the value starts, which keeps unsupported closure modifiers
+/// (`async`, `move`, `const`, `for<...>`), return types, and bare function
+/// paths out of the grammar.
+#[derive(Debug)]
+pub(super) struct PseudoClosure {
+    /// The generic parameters and the `where` clause.
+    pub(super) generics: Generics,
+    open: Token![|],
+    /// The parameter; an untyped one is read as `pattern: _`.
+    pub(super) param: PatType,
+    close: Token![|],
+    pub(super) body: Expr,
+}
 
 impl Parse for PseudoClosure {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
+        let mut generics = input.parse::<Generics>()?;
         if !input.peek(Token![|]) {
             return Err(input.error("expected pseudo-closure `|pattern: Type| body`"));
         }
-        let closure = input.parse::<ExprClosure>()?;
-        if closure.inputs.len() != 1 {
-            // With at least one parameter the diagnostic points at the
-            // parameter list; `|| ...` has none, so the closure itself is
-            // highlighted.
-            let span = if closure.inputs.is_empty() {
-                closure.span()
+        let open = input.parse::<Token![|]>()?;
+        let mut params = Punctuated::<PatType, Token![,]>::new();
+        while !input.peek(Token![|]) {
+            let pat = Pat::parse_single(input)?;
+            params.push_value(if input.peek(Token![:]) {
+                PatType {
+                    attrs: Vec::new(),
+                    pat: Box::new(pat),
+                    colon_token: input.parse()?,
+                    ty: input.parse()?,
+                }
             } else {
-                closure.inputs.span()
+                pqs! { pat.span() => #pat: _ }
+            });
+            if input.peek(Token![|]) {
+                break;
+            }
+            params.push_punct(input.parse()?);
+        }
+        let close = input.parse::<Token![|]>()?;
+        if params.len() != 1 {
+            // With at least one parameter the diagnostic points at the
+            // parameter list; `||` has none, so both bars are highlighted.
+            let span = if params.is_empty() {
+                quote! { #open #close }
+            } else {
+                params.to_token_stream()
             };
-            return Err(Error::new(
+            return Err(Error::new_spanned(
                 span,
                 "`with` closure must take exactly one parameter",
             ));
         }
-        Ok(Self(closure))
+        let param = params
+            .into_iter()
+            .next()
+            .expect("the parameter count is checked above");
+        if input.peek(Token![->]) {
+            return Err(input.error(
+                "`with` closure cannot declare a return type; it always returns the field type",
+            ));
+        }
+        generics.where_clause = input.parse()?;
+        // An unbraced body could not be told apart from the end of the
+        // `where` clause.
+        let body = if generics.where_clause.is_some() {
+            Expr::Block(ExprBlock {
+                attrs: Vec::new(),
+                label: None,
+                block: input.parse()?,
+            })
+        } else {
+            input.parse()?
+        };
+        Ok(Self {
+            generics,
+            open,
+            param,
+            close,
+            body,
+        })
     }
 }
 
 impl FromMeta for PseudoClosure {
+    fn from_meta(meta: &Meta) -> darling::Result<Self> {
+        match meta {
+            // Neither generic parameters nor a `where` clause can appear in
+            // the expression after `=`, so they are written as `with(...)`.
+            Meta::List(list) => Ok(list.parse_args()?),
+            Meta::NameValue(value) => Self::from_expr(&value.value),
+            Meta::Path(_) => Self::from_word(),
+        }
+        .map_err(|error| error.with_span(meta))
+    }
+
     fn from_expr(expr: &Expr) -> darling::Result<Self> {
         match expr {
             // The historic `with = "|x| ..."` string spelling stays supported;
@@ -126,7 +196,15 @@ impl FromMeta for PseudoClosure {
 
 impl ToTokens for PseudoClosure {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.0.to_tokens(tokens);
+        let Self {
+            generics,
+            open,
+            param,
+            close,
+            body,
+        } = self;
+        let where_clause = &generics.where_clause;
+        tokens.extend(quote! { #generics #open #param #close #where_clause #body });
     }
 }
 

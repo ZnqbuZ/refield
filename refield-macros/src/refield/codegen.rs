@@ -5,8 +5,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::token::Brace;
 use syn::{
-    Error, Expr, FieldValue, Member, Pat, Path, RangeLimits, Result, Token, Type, TypePath,
-    Visibility, WherePredicate, braced,
+    Error, Expr, FieldValue, Generics, Member, Pat, Path, RangeLimits, Result, Token, Type,
+    TypePath, Visibility, WherePredicate, braced,
 };
 
 use super::args::Crate;
@@ -139,6 +139,8 @@ impl ToTokens for SchemaMacro {
 pub(super) struct Helper<'f> {
     pub(super) vis: &'f Visibility,
     pub(super) ident: &'f Ident,
+    /// The generic parameters and `where` clause of a `with` closure.
+    pub(super) generics: Option<&'f Generics>,
     /// The parameter pattern and type, or `None` for a helper that takes no
     /// value (a `default` expression).
     pub(super) input: Option<(&'f Pat, &'f Type)>,
@@ -153,6 +155,7 @@ impl ToTokens for Helper<'_> {
         let Self {
             vis,
             ident,
+            generics,
             input,
             output,
             body,
@@ -165,6 +168,13 @@ impl ToTokens for Helper<'_> {
         let predicates = {
             let mut predicates = vec![quote! { Self: ::core::marker::Sized }];
             predicates.extend(bounds.iter().map(|bound| quote! { #bound }));
+            predicates.extend(
+                generics
+                    .and_then(|generics| generics.where_clause.as_ref())
+                    .into_iter()
+                    .flat_map(|clause| &clause.predicates)
+                    .map(|predicate| quote! { #predicate }),
+            );
             predicates.extend(input.and_then(|(_, ty)| sized(ty)));
             predicates.extend(sized(output));
             predicates
@@ -177,7 +187,7 @@ impl ToTokens for Helper<'_> {
             #[doc(hidden)]
             #[inline(always)]
             #[allow(private_interfaces, private_bounds)]
-            #vis #konst fn #ident(
+            #vis #konst fn #ident #generics (
                 #param
                 #marker: ::core::marker::PhantomData<Self>,
             ) -> #output

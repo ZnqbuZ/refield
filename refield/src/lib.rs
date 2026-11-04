@@ -173,7 +173,7 @@
 //! | Attribute | Scope | Effect |
 //! | --- | --- | --- |
 //! | `name = "..."` | field, struct | Reads the automatic value from a differently named source field. `{}` expands to the target field's name. On a struct, applies to every automatic field. |
-//! | `with = value` | field, struct | Converts the automatic value. Accepts a pseudo-closure (`\|pattern: Type\| body`) (use a typed parameter, e.g. `\|x: SrcType\|` ..., for heterogeneous source types). On a struct, applies to every automatic field. |
+//! | `with = value` / `with(value)` | field, struct | Converts the automatic value. Accepts a pseudo-closure (`\|pattern: Type\| body`) (use a typed parameter, e.g. `\|x: SrcType\|` ..., for heterogeneous source types). `with(<T> \|x: T\| where ... { ... })` adds generic parameters and a `where` clause. On a struct, applies to every automatic field. |
 //! | `default` / `default = expr` | field | Fills an omitted or skipped field: initializes the field when there is no `..rest` or when marked `skip`. |
 //! | `skip` | field | Never reads the field from `..rest`; initializes it from its default. Combine with `default = expr` to choose the value. |
 //! | `bound(...)` | field | Adds `where` predicates to the generated helper method. Parentheses syntax only. |
@@ -297,8 +297,9 @@
 //!   `#[refield(with = |raw: &'a [u8]| core::str::from_utf8(raw).unwrap())]`.
 //!
 //! When the source type differs from the target field type, the input type must be spelled out
-//! on the pseudo-closure parameter because the custom conversion becomes an inherent helper
-//! method on the target struct and cannot infer its parameter from the call site's source type.
+//! on the pseudo-closure parameter, either concretely or as a generic parameter (see below): the
+//! custom conversion becomes an inherent helper method on the target struct, and an untyped
+//! parameter takes the field's type.
 //!
 //! A struct-level `with` is compiled once per field. An untyped pseudo-closure
 //! sees each field's own type, while a typed one specifies a shared input type
@@ -322,28 +323,63 @@
 //! );
 //! ```
 //!
-//! A pseudo-closure's explicit return type becomes the helper's return type, so a conversion that
-//! produces a different type than the field is a compile error rather than being silently
-//! discarded:
+//! The helper always returns the field's type, so a pseudo-closure cannot declare a return type.
 //!
-//! ```compile_fail,E0308
+//! Generic parameters and a `where` clause let one helper accept every source type the bounds
+//! allow. Neither can follow `=`, so such a pseudo-closure is written in parentheses, and a
+//! `where` clause needs a block body:
+//!
+//! ```rust
+//! use refield::{Refield, refield};
+//!
+//! struct Raw { id: u8, count: u16, name: &'static str }
+//!
+//! #[derive(Refield, Debug, PartialEq)]
+//! #[refield(with(<T> |value: T| where u64: From<T> { u64::from(value) }))]
+//! struct Stats {
+//!     id: u64,
+//!     count: u64,
+//!     #[refield(with(<'a, T: ?Sized> |value: &'a T| where &'a T: Into<String> { value.into() }))]
+//!     name: String,
+//! }
+//!
+//! assert_eq!(
+//!     refield!(Stats { ..Raw { id: 1, count: 2, name: "stats" } }),
+//!     Stats { id: 1, count: 2, name: "stats".into() },
+//! );
+//! ```
+//!
+//! The helper is called without generic arguments. `rustc` infers them from the source value
+//! and reports an error if it cannot determine a type or const parameter:
+//!
+//! ```compile_fail,E0282
 //! use refield::{Refield, refield};
 //! #[derive(Refield)]
-//! struct Config {
-//!     // The pseudo-closure returns `bool`, but the field is a `u8`.
-//!     #[refield(with = |value: u8| -> bool { value != 0 })]
-//!     port: u8,
+//! struct Target {
+//!     #[refield(with(<T> |v: u8| v))]
+//!     value: u8,
 //! }
-//! struct Raw { port: u8 }
-//! let config = refield!(Config { ..Raw { port: 1 } });
-//! # let _ = config;
+//! struct Raw { value: u8 }
+//! let _ = refield!(Target { ..Raw { value: 1 } });
+//! ```
+//!
+//! The struct's own generic parameters are in scope already and are used without being
+//! declared again. Redeclaring one is rejected by `rustc`:
+//!
+//! ```compile_fail,E0403
+//! use refield::Refield;
+//! #[derive(Refield)]
+//! struct Target<T> {
+//!     #[refield(with(<T> |v: T| v))]
+//!     value: T,
+//! }
 //! ```
 //!
 //! Unsupported closure forms and bare function paths are rejected where the value starts. Only a
 //! pseudo-closure (`|pattern: Type| body`) is accepted after `with`.
 //! `async`, `move`, `const`, and `for<...>` prefixes are ordinary syntax
-//! errors, and so is a parenthesized form; there is no per-modifier
-//! diagnostic:
+//! errors, and so is a parenthesized value such as `with = (|value: u8| value)`; there is no
+//! per-modifier diagnostic:
 //!
 //! ```compile_fail
 //! use refield::Refield;
@@ -1576,7 +1612,8 @@ extern crate self as refield;
 ///   `{}` expands to each target field's name, so one pattern covers a whole struct.
 /// - `#[refield(with = value)]`: converts every automatic field. `value` is a pseudo-closure
 ///   shorthand for a helper method (`|pattern: Type| body`); use a typed parameter
-///   (e.g. `|x: SrcType| ...`) when source types differ from field types.
+///   (e.g. `|x: SrcType| ...`) when source types differ from field types, or a generic one
+///   (`with(<T> |x: T| where u64: From<T> { u64::from(x) })`) to accept several source types.
 /// - `#[refield(const)]`: generates the custom `with` / `default` helpers as `const fn`, so the
 ///   whole `refield!` call can run in a `const` context. Literal defaults are already `const fn`
 ///   without the flag.
@@ -1594,8 +1631,14 @@ extern crate self as refield;
 ///   The input type defaults to the target field's type, so homogeneous conversions need no
 ///   annotation: `#[refield(with = |x| x + 1)]`. A typed
 ///   pseudo-closure takes its input from its own parameter
-///   (`#[refield(with = |s: &str| s.to_uppercase())]`). Bare function paths and modifiers such
-///   as `async`, `move`, `const`, and `for<...>` are not part of this grammar and are syntax errors.
+///   (`#[refield(with = |s: &str| s.to_uppercase())]`). Written in parentheses, it may declare
+///   generic parameters and a `where` clause followed by a block body
+///   (`#[refield(with(<T> |x: T| where u8: From<T> { u8::from(x) }))]`). `rustc` infers the
+///   generic arguments from the source value and reports parameters it cannot determine or that
+///   redeclare the struct's own. The struct's parameters are in scope already. The helper always
+///   returns the field's type, so no return type is declared. Bare function paths and modifiers
+///   such as `async`, `move`, `const`,
+///   and `for<...>` are not part of this grammar and are syntax errors.
 /// - `#[refield(default)]` / `#[refield(default = expr)]`: initializes the field when there is no
 ///   `..rest`, or when combined with `skip`.
 /// - `#[refield(skip)]`: never reads the field from `..rest` and initializes it with
@@ -1620,8 +1663,8 @@ extern crate self as refield;
 /// They become inherent helper methods on the target struct, so they evaluate in its
 /// **definition-site scope**: the struct's generic parameters and lifetimes are in scope, and so
 /// are private functions, constants, and imports of the defining module. This is also why a
-/// heterogeneous conversion needs a typed pseudo-closure parameter — the helper's parameter type
-/// cannot be inferred from the call site's source type.
+/// heterogeneous conversion needs a typed or generic pseudo-closure parameter — an untyped
+/// parameter takes the field's type, not the call site's source type.
 ///
 /// Applying the derive to anything other than a struct is an error.
 pub use refield_macros::Refield;
