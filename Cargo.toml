@@ -10,11 +10,11 @@ members = [
 
 [workspace.package]
 repository = "https://github.com/ZnqbuZ/refield"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["struct", "projection", "spread", "macro", "derive"]
 categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
 
 [workspace.dependencies]
-refield-macros = { version = "0.1.1", path = "refield-macros" }
+refield-macros = { version = "0.2.0", path = "refield-macros" }
