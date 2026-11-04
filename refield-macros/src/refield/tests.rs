@@ -1,5 +1,5 @@
 use super::*;
-use crate::refield::args::FunctionArg;
+use crate::refield::args::PseudoClosure;
 use quote::{ToTokens, quote};
 
 fn error_message<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> String {
@@ -1333,7 +1333,7 @@ fn default_preserves_string_literals_and_non_expr_keys_reject_strings() {
     let file = derive_file(quote! {
         #[refield(crate = "::refield")]
         struct SampleWith {
-            #[refield(with = "core::convert::identity")]
+            #[refield(with = "|x| x")]
             value: u8,
         }
     });
@@ -1632,7 +1632,7 @@ fn struct_level_with_closure_type_uses_the_declared_input_type() {
 #[test]
 fn struct_level_const_promotes_every_helper() {
     let file = derive_file(quote! {
-        #[refield(const, with = double)]
+        #[refield(const, with = |v| v * 2)]
         struct Sample {
             a: u8,
             #[refield(default = 1)]
@@ -1736,7 +1736,10 @@ fn struct_level_with_is_validated_like_field_with() {
 fn struct_level_duplicate_and_unknown_keys_are_rejected() {
     for (attribute, expected) in [
         (quote! { name = "a", name = "b" }, "Duplicate field `name`"),
-        (quote! { with = f, with = g }, "Duplicate field `with`"),
+        (
+            quote! { with = |x| x, with = |x| x },
+            "Duplicate field `with`",
+        ),
         (quote! { const, const }, "Duplicate field `const`"),
         (quote! { on(fast) }, "Unknown field: `on`"),
         (quote! { skip }, "Unknown field: `skip`"),
@@ -2403,7 +2406,7 @@ fn with_expression_mentioning_on_is_not_a_profile_rule() {
     // to parse the way a generic call would.
     let file = derive_file(quote! {
         struct Sample {
-            #[refield(with = bump::<(), On>)]
+            #[refield(with = |v| bump::<(), On>(v))]
             value: u8,
         }
     });
@@ -2427,7 +2430,7 @@ fn lowercase_on_type_argument_is_not_a_profile_rule() {
     // attribute is a plain default rule.
     let file = derive_file(quote! {
         struct Sample {
-            #[refield(with = bump::<(), on>, default = 1)]
+            #[refield(with = |v| bump::<(), on>(v), default = 1)]
             value: u8,
         }
     });
@@ -2442,70 +2445,35 @@ fn lowercase_on_type_argument_is_not_a_profile_rule() {
 }
 
 // -----------------------------------------------------------------------
-// `with`: pseudo-closure shorthand and function paths
+// `with`: pseudo-closure shorthand
 // -----------------------------------------------------------------------
 
-fn parse_function_arg(source: &str) -> FunctionArg {
-    syn::parse_str::<FunctionArg>(source)
+fn parse_pseudo_closure(source: &str) -> PseudoClosure {
+    syn::parse_str::<PseudoClosure>(source)
         .unwrap_or_else(|error| panic!("`{source}` should parse: {error}"))
 }
 
 #[test]
-fn function_arg_parses_pseudo_closures() {
-    let typed = parse_function_arg("|v: u8| v + 1");
-    let FunctionArg::PseudoClosure(closure) = typed else {
-        panic!("a leading `|` selects a pseudo-closure");
-    };
-    assert_eq!(closure.inputs.len(), 1);
-    assert!(matches!(closure.output, syn::ReturnType::Default));
+fn pseudo_closure_parses_closures() {
+    let typed = parse_pseudo_closure("|v: u8| v + 1");
+    assert_eq!(typed.inputs.len(), 1);
+    assert!(matches!(typed.output, syn::ReturnType::Default));
 
-    let untyped = parse_function_arg("|v| v + 1");
-    assert!(matches!(untyped, FunctionArg::PseudoClosure(_)));
+    let untyped = parse_pseudo_closure("|v| v + 1");
+    assert_eq!(untyped.inputs.len(), 1);
 
-    let infer = parse_function_arg("|v: _| v + 1");
-    assert!(matches!(infer, FunctionArg::PseudoClosure(_)));
+    let infer = parse_pseudo_closure("|v: _| v + 1");
+    assert_eq!(infer.inputs.len(), 1);
 
-    let returned = parse_function_arg("|v: u8| -> u16 { u16::from(v) }");
-    let FunctionArg::PseudoClosure(returned) = returned else {
-        panic!("a return type belongs to the pseudo-closure");
-    };
+    let returned = parse_pseudo_closure("|v: u8| -> u16 { u16::from(v) }");
+    assert_eq!(returned.inputs.len(), 1);
     assert!(matches!(returned.output, syn::ReturnType::Type(..)));
-}
 
-#[test]
-fn function_arg_parses_function_paths() {
-    for source in [
-        "negate",
-        "core::convert::identity",
-        "crate::module::convert",
-        "bump::<(), on>",
-        "<Target as Trait>::convert",
-        "<Target as Trait>::convert::<u8>",
-    ] {
-        let parsed = parse_function_arg(source);
-        assert!(
-            matches!(parsed, FunctionArg::Function(_)),
-            "`{source}` is a function path"
-        );
-        assert_eq!(
-            parsed.to_token_stream().to_string().replace(' ', ""),
-            source.replace(' ', ""),
-            "the written path keeps its shape"
-        );
-    }
+    let from_string = PseudoClosure::from_meta(&syn::parse_quote!(with = "|v: u8| v + 1"))
+        .expect("string spelling is supported");
+    assert_eq!(from_string.inputs.len(), 1);
 
-    let from_string = FunctionArg::from_meta(&syn::parse_quote!(with = "core::convert::identity"))
-        .expect("the historic string spelling stays supported");
-    assert!(matches!(from_string, FunctionArg::Function(_)));
-    assert!(
-        from_string
-            .to_token_stream()
-            .to_string()
-            .contains("identity"),
-        "the string contents become the path"
-    );
-
-    let bad_string = FunctionArg::from_meta(&syn::parse_quote!(with = "|a, b| a"));
+    let bad_string = PseudoClosure::from_meta(&syn::parse_quote!(with = "|a, b| a"));
     assert!(
         bad_string.is_err(),
         "a string must satisfy the same grammar as the bare value"
@@ -2513,8 +2481,14 @@ fn function_arg_parses_function_paths() {
 }
 
 #[test]
-fn function_arg_rejects_every_other_shape() {
+fn pseudo_closure_rejects_every_other_shape() {
     for source in [
+        "negate",
+        "core::convert::identity",
+        "crate::module::convert",
+        "bump::<(), on>",
+        "<Target as Trait>::convert",
+        "<Target as Trait>::convert::<u8>",
         "(|v: u8| v)",
         "async |v: u8| v",
         "move |v: u8| v",
@@ -2525,13 +2499,13 @@ fn function_arg_rejects_every_other_shape() {
         "1 + 2",
     ] {
         assert!(
-            syn::parse_str::<FunctionArg>(source).is_err(),
+            syn::parse_str::<PseudoClosure>(source).is_err(),
             "`{source}` is outside the `with` grammar"
         );
     }
 
     for source in ["|| 1", "|a, b| a"] {
-        let error = syn::parse_str::<FunctionArg>(source).unwrap_err();
+        let error = syn::parse_str::<PseudoClosure>(source).unwrap_err();
         assert_eq!(
             error.to_string(),
             "`with` closure must take exactly one parameter",

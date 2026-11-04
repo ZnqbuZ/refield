@@ -8,8 +8,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
-    Error, Expr, ExprClosure, ExprLit, ExprPath, Lit, LitStr, Meta, Path, Result, Token,
-    WherePredicate, parse_quote, parse2,
+    Error, Expr, ExprClosure, ExprLit, Lit, LitStr, Meta, Path, Result, Token, WherePredicate,
+    parse_quote, parse2,
 };
 
 #[derive(Debug, FromMeta)]
@@ -70,30 +70,24 @@ impl FromMeta for Bounds {
 #[darling(default)]
 pub(super) struct GeneralArgs {
     pub(super) name: Option<LitStr>,
-    pub(super) with: Option<FunctionArg>,
+    pub(super) with: Option<PseudoClosure>,
     #[darling(rename = "const")]
     pub(super) konst: Flag,
 }
 
 /// The conversion written after `with`.
 ///
-/// Only two shapes are accepted, and the leading token decides which one:
-/// pseudo-closure shorthand (`|pattern: Type| body`) or a function path. Any
+/// Only pseudo-closure shorthand (`|pattern: Type| body`) is accepted. Any
 /// other expression is a syntax error at the point where the value starts,
 /// which keeps unsupported closure modifiers (`async`, `move`, `const`,
-/// `for<...>`) out of the grammar rather than giving each one a diagnostic.
-#[derive(Debug)]
-pub(super) enum FunctionArg {
-    /// A closure promoted to an inherent helper method on the target struct.
-    PseudoClosure(ExprClosure),
-    /// A function called as `(#path)(value)`.
-    Function(ExprPath),
-}
+/// `for<...>`) and bare function paths out of the grammar.
+#[derive(Debug, Deref)]
+pub(super) struct PseudoClosure(ExprClosure);
 
-impl Parse for FunctionArg {
+impl Parse for PseudoClosure {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         if !input.peek(Token![|]) {
-            return Ok(Self::Function(input.parse()?));
+            return Err(input.error("expected pseudo-closure `|pattern: Type| body`"));
         }
         let closure = input.parse::<ExprClosure>()?;
         if closure.inputs.len() != 1 {
@@ -110,15 +104,15 @@ impl Parse for FunctionArg {
                 "`with` closure must take exactly one parameter",
             ));
         }
-        Ok(Self::PseudoClosure(closure))
+        Ok(Self(closure))
     }
 }
 
-impl FromMeta for FunctionArg {
+impl FromMeta for PseudoClosure {
     fn from_expr(expr: &Expr) -> darling::Result<Self> {
         match expr {
-            // The historic `with = "core::convert::identity"` spelling stays
-            // supported; the string contents must satisfy the same grammar.
+            // The historic `with = "|x| ..."` string spelling stays supported;
+            // the string contents must satisfy the same grammar.
             Expr::Lit(ExprLit {
                 lit: Lit::Str(lit), ..
             }) => Ok(lit.parse()?),
@@ -130,12 +124,9 @@ impl FromMeta for FunctionArg {
     }
 }
 
-impl ToTokens for FunctionArg {
+impl ToTokens for PseudoClosure {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        match self {
-            Self::PseudoClosure(closure) => closure.to_tokens(tokens),
-            Self::Function(path) => path.to_tokens(tokens),
-        }
+        self.0.to_tokens(tokens);
     }
 }
 

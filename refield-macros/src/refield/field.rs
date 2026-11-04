@@ -10,10 +10,10 @@ use syn::{
     Error, Expr, Field, Fields, Index, Member, Pat, Path, Result, ReturnType, Token, Type, UnOp,
 };
 
-use super::args::{FieldArgs, FunctionArg, StructArgs};
+use super::args::{FieldArgs, StructArgs};
 use super::codegen::Helper;
 use super::utils::{
-    block, combine, format, is_refield, is_same, member_to_string, parse, path_to_string, qs, span,
+    block, combine, format, is_refield, is_same, member_to_string, parse, path_to_string, qs,
 };
 
 /// How a missing field value is produced.
@@ -70,9 +70,9 @@ impl FieldRule {
     /// automatic source that has no field-level `name`, and `with` describes
     /// the conversion of every automatic field that does not override it.
     ///
-    /// A `with` pseudo-closure or function path and a custom `default`
-    /// expression each become an inherent helper method on the target struct,
-    /// pushed to `helpers`, so they evaluate in the definition site's scope.
+    /// A `with` pseudo-closure and a custom `default` expression each become
+    /// an inherent helper method on the target struct, pushed to `helpers`,
+    /// so they evaluate in the definition site's scope.
     fn new(
         args: FieldArgs,
         target: &Member,
@@ -111,47 +111,28 @@ impl FieldRule {
                 "{check}_with_{name}_{index}",
                 span = Span::mixed_site().located_at(with.span())
             );
-            let (pat, input, output, body) = match with {
-                FunctionArg::PseudoClosure(closure) => {
-                    let param = closure
-                        .inputs
-                        .first()
-                        .expect("closure parameter count is validated while parsing `with`");
-                    // An untyped parameter, or `_` as its type, takes the field type.
-                    let (pat, input) = match param {
-                        Pat::Type(param) => {
-                            let input = match &*param.ty {
-                                Type::Infer(_) => field.ty.clone(),
-                                ty => ty.clone(),
-                            };
-                            ((*param.pat).clone(), input)
-                        }
-                        pat => (pat.clone(), field.ty.clone()),
+            let param = with
+                .inputs
+                .first()
+                .expect("closure parameter count is validated while parsing `with`");
+            // An untyped parameter, or `_` as its type, takes the field type.
+            let (pat, input) = match param {
+                Pat::Type(param) => {
+                    let input = match &*param.ty {
+                        Type::Infer(_) => field.ty.clone(),
+                        ty => ty.clone(),
                     };
-                    // The closure's declared return type is part of its signature,
-                    // so it becomes the helper's return type. A mismatch with the
-                    // field is then reported by the compiler instead of being
-                    // discarded.
-                    let output = match &closure.output {
-                        ReturnType::Type(_, ty) if !matches!(**ty, Type::Infer(_)) => {
-                            (**ty).clone()
-                        }
-                        _ => field.ty.clone(),
-                    };
-                    (pat, input, output, block(&closure.body))
+                    ((*param.pat).clone(), input)
                 }
-                FunctionArg::Function(path) => {
-                    // A function path is called with the extracted value; its
-                    // signature is not guessed, so both ends use the field type.
-                    span!(path.span());
-                    let value = format_ident!("__refield_value", span = Span::mixed_site());
-                    (
-                        pq! { #value },
-                        field.ty.clone(),
-                        field.ty.clone(),
-                        q! { (#path)(#value) },
-                    )
-                }
+                pat => (pat.clone(), field.ty.clone()),
+            };
+            // The closure's declared return type is part of its signature,
+            // so it becomes the helper's return type. A mismatch with the
+            // field is then reported by the compiler instead of being
+            // discarded.
+            let output = match &with.output {
+                ReturnType::Type(_, ty) if !matches!(**ty, Type::Infer(_)) => (**ty).clone(),
+                _ => field.ty.clone(),
             };
             helpers.push(
                 Helper {
@@ -159,7 +140,7 @@ impl FieldRule {
                     ident: &ident,
                     input: Some((&pat, &input)),
                     output: &output,
-                    body,
+                    body: block(&with.body),
                     bounds: &bounds,
                     konst,
                 }

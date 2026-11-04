@@ -21,7 +21,7 @@ pub fn build(raw: Raw) -> Target {
 }
 
 #[derive(Refield, Debug, PartialEq, Eq)]
-#[refield(crate = facade, with = facade::support::bump)]
+#[refield(crate = facade, with = |v| facade::support::bump(v))]
 pub struct ConvertedTarget {
     pub value: u8,
 }

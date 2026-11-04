@@ -173,7 +173,7 @@
 //! | Attribute | Scope | Effect |
 //! | --- | --- | --- |
 //! | `name = "..."` | field, struct | Reads the automatic value from a differently named source field. `{}` expands to the target field's name. On a struct, applies to every automatic field. |
-//! | `with = value` | field, struct | Converts the automatic value. Accepts a pseudo-closure (`\|pattern: Type\| body`) or a function path (use a typed parameter, e.g. `\|x: SrcType\|` ..., for heterogeneous source types). On a struct, applies to every automatic field. |
+//! | `with = value` | field, struct | Converts the automatic value. Accepts a pseudo-closure (`\|pattern: Type\| body`) (use a typed parameter, e.g. `\|x: SrcType\|` ..., for heterogeneous source types). On a struct, applies to every automatic field. |
 //! | `default` / `default = expr` | field | Fills an omitted or skipped field: initializes the field when there is no `..rest` or when marked `skip`. |
 //! | `skip` | field | Never reads the field from `..rest`; initializes it from its default. Combine with `default = expr` to choose the value. |
 //! | `bound(...)` | field | Adds `where` predicates to the generated helper method. Parentheses syntax only. |
@@ -257,8 +257,7 @@
 //! assert_eq!(config, Config { port: 1, name: "old".into() });
 //! ```
 //!
-//! `with = value` calls a pseudo-closure shorthand for a helper method, or a
-//! function path:
+//! `with = value` calls a pseudo-closure shorthand for a helper method:
 //!
 //! ```rust
 //! use refield::{Refield, refield};
@@ -290,8 +289,8 @@
 //!
 //! The conversion input type is resolved in two ways:
 //!
-//! - **Homogeneous pseudo-closures and function paths** default to the target field's type, so
-//!   an `i32` field can use `#[refield(with = |x| x + 1)]` or `#[refield(with = negate)]`
+//! - **Homogeneous pseudo-closures** default to the target field's type, so
+//!   an `i32` field can use `#[refield(with = |x| x + 1)]`
 //!   without naming any type.
 //! - **Heterogeneous conversions** specify the input type via a typed pseudo-closure parameter:
 //!   `#[refield(with = |s: &str| title_case(s))]` or
@@ -340,8 +339,8 @@
 //! # let _ = config;
 //! ```
 //!
-//! Unsupported closure forms are rejected where the value starts. Only two
-//! shapes are accepted after `with`: a pseudo-closure and a function path.
+//! Unsupported closure forms and bare function paths are rejected where the value starts. Only a
+//! pseudo-closure (`|pattern: Type| body`) is accepted after `with`.
 //! `async`, `move`, `const`, and `for<...>` prefixes are ordinary syntax
 //! errors, and so is a parenthesized form; there is no per-modifier
 //! diagnostic:
@@ -460,22 +459,17 @@
 //! it needs no `const` flag. The flag is required when the expression calls something that is
 //! not itself a literal.
 //!
-//! `with` also accepts a function or path, which is convenient when the
-//! conversion already exists. Combined with `name`, this expresses polarity inversion or any other
+//! Combined with `name`, `with` expresses polarity inversion or any other
 //! renamed-and-converted field:
 //!
 //! ```rust
 //! use refield::{Refield, refield};
 //!
-//! fn negate(value: bool) -> bool {
-//!     !value
-//! }
-//!
 //! struct Raw { off: bool }
 //!
 //! #[derive(Refield, Debug, PartialEq)]
 //! struct Config {
-//!     #[refield(name = "off", with = negate)]
+//!     #[refield(name = "off", with = |v| !v)]
 //!     on: bool,
 //! }
 //!
@@ -599,7 +593,7 @@
 //! `on(...)` uses parentheses syntax and accepts one name or a list:
 //!
 //! - `#[refield(on(alt), name = "alt_host")]`
-//! - `#[refield(on(alt, legacy), with = normalize)]`
+//! - `#[refield(on(alt, legacy), with = |v| normalize(v))]`
 //!
 //! A rule can bind several profiles at once, and a field may declare different rules for
 //! different profiles; a profile with no rule of its own inherits the field's default rule.
@@ -1581,7 +1575,7 @@ extern crate self as refield;
 /// - `#[refield(name = "...")]`: reads every automatic field from a differently named source.
 ///   `{}` expands to each target field's name, so one pattern covers a whole struct.
 /// - `#[refield(with = value)]`: converts every automatic field. `value` is a pseudo-closure
-///   shorthand for a helper method or a function path; use a typed parameter
+///   shorthand for a helper method (`|pattern: Type| body`); use a typed parameter
 ///   (e.g. `|x: SrcType| ...`) when source types differ from field types.
 /// - `#[refield(const)]`: generates the custom `with` / `default` helpers as `const fn`, so the
 ///   whole `refield!` call can run in a `const` context. Literal defaults are already `const fn`
@@ -1593,15 +1587,15 @@ extern crate self as refield;
 ///
 /// - `#[refield(name = "...")]`: reads the automatic value from a differently named source field.
 ///   `{}` expands to the target field's name; numeric names select tuple fields and vice versa.
-/// - `#[refield(with = value)]`: converts this automatic field. The value is either a
-///   pseudo-closure shorthand for a helper method (`|pattern: Type| body`) or a function path,
-///   and a path may also be written as a string (`with = "some::path"`).
+/// - `#[refield(with = value)]`: converts this automatic field. The value is a
+///   pseudo-closure shorthand for a helper method (`|pattern: Type| body`),
+///   and may also be written as a string (`with = "|x| ..."`).
 ///
 ///   The input type defaults to the target field's type, so homogeneous conversions need no
-///   annotation: `#[refield(with = |x| x + 1)]`, `#[refield(with = negate)]`. A typed
+///   annotation: `#[refield(with = |x| x + 1)]`. A typed
 ///   pseudo-closure takes its input from its own parameter
-///   (`#[refield(with = |s: &str| s.to_uppercase())]`). Modifiers such as `async`, `move`,
-///   `const`, and `for<...>` are not part of this grammar and are syntax errors.
+///   (`#[refield(with = |s: &str| s.to_uppercase())]`). Bare function paths and modifiers such
+///   as `async`, `move`, `const`, and `for<...>` are not part of this grammar and are syntax errors.
 /// - `#[refield(default)]` / `#[refield(default = expr)]`: initializes the field when there is no
 ///   `..rest`, or when combined with `skip`.
 /// - `#[refield(skip)]`: never reads the field from `..rest` and initializes it with

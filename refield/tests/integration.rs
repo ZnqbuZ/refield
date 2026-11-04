@@ -1104,7 +1104,7 @@ fn refieldable_impl_handles_generic_associated_types() {
 }
 
 // ---------------------------------------------------------------------------
-// 10. `with` transforms: boolean polarity inversion and function-name strings
+// 10. `with` transforms: boolean polarity inversion and conversions
 // ---------------------------------------------------------------------------
 
 fn normalize_name(value: &'static str) -> String {
@@ -1144,7 +1144,6 @@ fn boolean_polarity_inversion_and_string_with_construct_from_raw() {
         }
     );
 
-    // `with = path` passes the function path directly.
     let raw = ToggleRaw {
         enabled: false,
         name: " edge ",
@@ -1855,10 +1854,6 @@ mod private_helpers {
         value.trim().to_uppercase()
     }
 
-    fn negate(value: bool) -> bool {
-        !value
-    }
-
     fn fallback_port() -> u16 {
         8080
     }
@@ -1867,7 +1862,7 @@ mod private_helpers {
     pub struct CrossModConfig {
         #[refield(with = |tag: &str| parse_tag(tag))]
         pub tag: String,
-        #[refield(with = negate)]
+        #[refield(with = |enabled| !enabled)]
         pub enabled: bool,
         #[refield(skip, default = fallback_port())]
         pub port: u16,
@@ -2560,16 +2555,12 @@ struct PanicRaw {
     b: DropLogger,
 }
 
-fn panic_conversion(value: DropLogger) -> DropLogger {
-    // Dropping `value` happens while this call unwinds, before the caller's
-    // `raw` starts dropping its remaining fields.
-    panic!("convert a failed: {}", value.label);
-}
-
 #[allow(dead_code)]
 #[derive(Refield)]
 struct PanicTarget {
-    #[refield(with = panic_conversion)]
+    // Dropping `v` happens while this call unwinds, before the caller's
+    // `raw` starts dropping its remaining fields.
+    #[refield(with = |v| panic!("convert a failed: {}", v.label))]
     a: DropLogger,
     b: DropLogger,
 }
@@ -3368,12 +3359,8 @@ fn struct_level_name_does_not_apply_to_skipped_fields() {
     assert_eq!(target.name, "skipped");
 }
 
-fn struct_level_negate(value: bool) -> bool {
-    !value
-}
-
 #[derive(Refield, Debug, PartialEq, Eq)]
-#[refield(with = struct_level_negate)]
+#[refield(with = |value| !value)]
 struct StructWithTarget {
     enabled: bool,
     // A field-level `with` replaces the struct-level one.
@@ -3475,7 +3462,7 @@ fn struct_level_name_with_and_const_combine() {
 // Field-level `name`, `with`, `from`, and `skip` each override the
 // corresponding struct-level default.
 #[derive(Refield, Debug, PartialEq, Eq)]
-#[refield(name = "raw_{}", with = struct_level_negate)]
+#[refield(name = "raw_{}", with = |value| !value)]
 struct OverrideTarget {
     // `name` override: read from `direct` instead of `raw_first`.
     #[refield(name = "direct")]
@@ -3493,7 +3480,7 @@ struct OverrideTarget {
 // A field-level `with` replaces the struct-level `with` instead of being
 // combined with it.
 #[derive(Refield, Debug, PartialEq, Eq)]
-#[refield(with = struct_level_negate)]
+#[refield(with = |value| !value)]
 struct FromOverrideTarget {
     #[refield(with = |value: bool| value)]
     passthrough: bool,
@@ -3548,7 +3535,7 @@ fn field_level_attributes_override_struct_level_defaults() {
 // rule that only overrides `name` still inherits the struct-level `name`
 // pattern for fields it does not rename, plus the struct-level `with`.
 #[derive(Refield, Debug, PartialEq, Eq)]
-#[refield(name = "raw_{}", with = struct_level_negate)]
+#[refield(name = "raw_{}", with = |value| !value)]
 struct StructLevelProfileTarget {
     enabled: bool,
     #[refield(on(fast), name = "fast_enabled")]
@@ -3692,7 +3679,7 @@ fn bump_generic<T, M>(value: u8) -> u8 {
 
 #[derive(Refield, Debug, PartialEq, Eq)]
 struct OnArgumentTarget {
-    #[refield(with = bump_generic::<(), on>, default = 1)]
+    #[refield(with = |value| bump_generic::<(), on>(value), default = 1)]
     value: u8,
 }
 
@@ -3720,9 +3707,9 @@ mod krate_struct {
         value
     }
 
-    // `with = crate::...` comes first on purpose: the `crate` keyword inside
+    // `with = |value| crate::...` comes first on purpose: the `crate` keyword inside
     // the path must not end the scan before the real `crate = patches` entry.
-    #[refieldable(with = crate::krate_struct::identity, crate = patches)]
+    #[refieldable(with = |value| crate::krate_struct::identity(value), crate = patches)]
     #[derive(Debug, PartialEq, Eq)]
     pub struct Target {
         pub value: u8,

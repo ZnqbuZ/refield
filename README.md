@@ -34,8 +34,8 @@ and any "build this type from that type" code that would otherwise be a wall of
   of the fields flow across with `..raw`, including inside `TryFrom` implementations.
 - **Conversions when you want them.** `with`, `name`, `default`, and `skip`
   describe per-field extraction, so the common wire-to-domain mapping is declarative.
-  `with` accepts a pseudo-closure shorthand or a function path, so
-  `#[refield(name = "off", with = negate)] on: bool` inverts polarity. Typed pseudo-closures
+  `with` accepts a pseudo-closure shorthand, so
+  `#[refield(name = "off", with = |v| !v)] on: bool` inverts polarity. Typed pseudo-closures
   like `#[refield(with = |s: &str| title_case(s))]` handle
   heterogeneous conversions, `bound(...)` adds per-field `where` predicates, and `const` makes
   the generated helpers `const fn`.
@@ -93,7 +93,7 @@ is in scope under its original name.
 | Explicit overrides | `refield!(Config { port: parse(raw.port)?, ..raw })` | Written fields bypass all automatic rules. |
 | Source written first | `refield!(Config { make_raw()?.., port: 1 })` | Reads the source before the written fields; any expression may come first. |
 | Rename the source | `#[refield(name = "raw_{}")]` | Reads `raw_port` for `port`; `{}` expands to the field name. On a struct, applies to every automatic field. |
-| Convert values | `#[refield(with = value)]` | Apply a pseudo-closure helper or function path to extracted values. |
+| Convert values | `#[refield(with = value)]` | Apply a pseudo-closure helper to extracted values. |
 | Heterogeneous conversion | `#[refield(with = \|s: &str\| title_case(s))]` | Names the input type in the pseudo-closure parameter when it differs from the target field type. Also works on the struct. |
 | Per-field bounds | `#[refield(bound(T: Trait))]` | Adds `where` predicates to the generated helper, without constraining the struct. Parentheses syntax only. |
 | `const` helpers | `#[refield(const)]`, `#[refieldable(const)]` | Generates `const fn` conversion/default helpers, so the call works in `const` contexts. |
@@ -191,9 +191,9 @@ fn main() {
 }
 ```
 
-`with` accepts a pseudo-closure shorthand for a helper method, not full Rust closure support,
-or a plain function path. The input may be written with `_` to take the field's type:
-`#[refield(with = |value: _| value + 1)]`. Any other shape — a parenthesized value, a call or
+`with` accepts a pseudo-closure shorthand for a helper method, not full Rust closure support.
+The input may be written with `_` to take the field's type:
+`#[refield(with = |value: _| value + 1)]`. Any other shape — a bare function path, a parenthesized value, a call or
 block expression, or a closure with an `async`, `move`, `const`, or `for<...>` prefix — is a
 syntax error where the value starts. A nested placeholder such as `Vec<_>` reaches the helper
 signature and is reported by `rustc`.
